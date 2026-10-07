@@ -168,8 +168,9 @@ function fallback(mode, description, vendor, ocrText = '') {
   const t = mode === 'worq' ? extractTask(description, ocrText) : null;
   const d = (t && t.verb && t.text.charAt(0).toLowerCase() + t.text.slice(1)) || (description || '').trim().replace(/[.\s]+$/, '') || (t && t.verb ? t.text.charAt(0).toLowerCase() + t.text.slice(1) : '') || (mode === 'worq' && w.equipment ? 'repair ' + w.equipment : '') || (mode === 'worq' && requestSegment(w.desc) ? 'repair ' + requestSegment(w.desc).toLowerCase() : '');
   if (mode === 'worq') {
+    const imperative = t && t.verb ? d.replace(/^hung\b/i, 'hang') : d && !/^repair\b/i.test(d) ? `repair ${d}` : d;
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
-    return `WORQ ${who} ${d || 'repair issue noted in attached photo'}`;
+    return `WORQ ${who} ${imperative || 'repair issue noted in attached photo'}`;
   }
   return templateClosure(description, ocrText);
 }
