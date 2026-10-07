@@ -7,8 +7,8 @@ const countWords = (s) => (s.trim().match(/\S+/g) || []).length;
 const EXAMPLE = 'Completed quarterly preventive maintenance on the ceiling heater. Contacted Facility Manager and gained access as required. Equipment was inspected and confirmed operating within acceptable standards. Photos attached to the inspection. All work order tasks completed.';
 
 const SYSTEM = `You write short maintenance work order text for a facilities team.
-Use any attached screenshots and the user's short description. Never invent specifics (part numbers, readings, names) that are not given or visible.
-If a screenshot shows a work order (e.g. its Work Description, equipment, or required steps such as "contact the Facility Manager to schedule access"), reflect those tasks in the comment, but only claim what the description or screenshot supports.
+Use any attached screenshots and the user's short description. You may assume the standard, logical repair steps for the request (e.g. a heater PM means inspected, cleaned and tested the unit; loose shingles means re-secured and sealed them), but never invent specifics such as part numbers, measurements, readings, costs or names.
+If a screenshot shows a work order (e.g. its Work Description, equipment, or required steps such as "contact the Facility Manager to schedule access"), reflect those tasks in the comment, and infer the logical work that fits the request.
 Output ONLY the requested text, with no quotes, labels or commentary.`;
 
 const ocrBlock = (t) => (t && t.trim() ? `\nText read from the work order screenshot (may contain OCR errors):\n${t.trim().slice(0, 3000)}` : '');
@@ -45,20 +45,60 @@ function parseWorkOrder(text = '') {
   };
 }
 
+// Standard, logical work for common requests, so the user doesn't have to spell it out.
+// pm: steps for preventive maintenance; fix: steps for a repair request.
+const KNOWLEDGE = [
+  { re: /ceiling heater|unit heater|\bheater\b|\bheat\b/i, label: 'heater',
+    pm: 'Inspected unit, cleaned housing and element, checked thermostat, fan operation and electrical connections.',
+    fix: 'Diagnosed heater fault, repaired the failed component and checked thermostat and electrical connections.' },
+  { re: /hvac|rtu|rooftop|air handler|furnace|\bac\b|a\/c|air condition|split system|condenser/i, label: 'HVAC unit',
+    pm: 'Inspected unit, checked and replaced air filters as needed, cleaned coils, checked belts, drain and electrical connections.',
+    fix: 'Diagnosed HVAC fault, repaired the failed component and checked refrigerant, airflow and electrical connections.' },
+  { re: /compressor/i, label: 'compressor',
+    pm: 'Inspected compressor, checked oil level, belts, electrical connections and pressure readings.',
+    fix: 'Diagnosed compressor issue, repaired the faulty component and checked pressures and electrical connections.' },
+  { re: /shingle|roof/i, label: 'roof',
+    pm: 'Inspected roof surface, flashing and drains and cleared debris.',
+    fix: 'Re-secured loose shingles, sealed affected area and inspected surrounding roof for further damage.' },
+  { re: /leak|plumb|faucet|toilet|sink|drain|pipe|water/i, label: 'plumbing',
+    pm: 'Inspected fixtures, piping and drains and checked for leaks.',
+    fix: 'Located the source of the leak, repaired it and checked surrounding area for further leaks.' },
+  { re: /light|lamp|bulb|ballast|fixture|led|exit sign/i, label: 'lighting',
+    pm: 'Inspected fixtures and emergency lighting, tested operation and replaced failed lamps.',
+    fix: 'Replaced the faulty lamp or driver and confirmed the fixture is working.' },
+  { re: /door|lock|latch|hinge|closer|hardware/i, label: 'door',
+    pm: 'Inspected door, hinges, closer and hardware, adjusted and lubricated as needed.',
+    fix: 'Adjusted and repaired the door hardware, lubricated moving parts and confirmed the door closes and latches properly.' },
+  { re: /ceiling tile|drywall|wall|paint|floor|tile/i, label: 'finishes',
+    pm: 'Inspected surfaces for damage and wear.',
+    fix: 'Repaired the damaged area and cleaned up the work area.' },
+  { re: /fire|extinguisher|alarm|sprinkler|smoke/i, label: 'life safety equipment',
+    pm: 'Inspected and tested equipment per requirements and checked tags and condition.',
+    fix: 'Repaired the affected life safety component and tested for proper operation.' },
+  { re: /electric|outlet|breaker|panel|switch|power/i, label: 'electrical',
+    pm: 'Inspected electrical components and connections and checked for damage or overheating.',
+    fix: 'Diagnosed the electrical fault, repaired it and confirmed power is restored and operating safely.' },
+];
+
 function templateClosure(description, ocrText) {
   const w = parseWorkOrder(ocrText);
   const d = (description || '').trim().replace(/[.\s]+$/, '');
-  const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
-  const on = w.equipment ? ` on the ${w.equipment}` : '';
+  const PAST = { repair: 'repaired', replace: 'replaced', fix: 'fixed', install: 'installed', clean: 'cleaned', adjust: 'adjusted', secure: 'secured', patch: 'patched', tighten: 'tightened', reset: 'reset', unclog: 'unclogged', inspect: 'inspected', service: 'serviced' };
+  const cap = (x) => { const [first, ...rest] = x.split(' '); const p = PAST[first.toLowerCase()]; return (p ? [p, ...rest].join(' ') : x).replace(/^./, (c) => c.toUpperCase()); };
+  // Prefer equipment named in the screenshot; fall back to the typed description, then the full request text.
+  const rule = KNOWLEDGE.find((k) => k.re.test(`${w.equipment} ${d}`)) || KNOWLEDGE.find((k) => k.re.test(w.desc));
+  const thing = w.equipment || (rule ? rule.label : '');
+  const on = thing ? ` on the ${thing}` : '';
   const parts = [];
   if (w.preventive) parts.push(`Completed ${w.frequency ? w.frequency + ' ' : ''}preventive maintenance${on}.`);
   else if (d) parts.push(`${cap(d)}.`);
-  else parts.push(`Completed repair${on || ' as noted in the work order'}.`);
+  else parts.push(`Completed repair${on || ' as requested in the work order'}.`);
   if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
+  if (rule) parts.push(w.preventive ? rule.pm : rule.fix);
   if (w.preventive && d) parts.push(`${cap(d)}.`);
   parts.push(w.preventive
     ? 'Equipment was inspected and confirmed operating within acceptable standards.'
-    : 'Tested and verified operating properly.');
+    : 'Repair was verified complete and the area is safe and operating properly.');
   parts.push('Photos attached.', 'All work order tasks completed.');
   return parts.join(' ');
 }
