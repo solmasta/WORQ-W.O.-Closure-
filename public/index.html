@@ -52,6 +52,7 @@
       <input type="file" id="file" accept="image/*" multiple hidden>
     </div>
     <div class="thumbs" id="thumbs"></div>
+    <div class="meta" id="ocrStatus"></div>
     <div class="row"><button class="primary" id="go">Generate</button></div>
   </div>
 
@@ -67,7 +68,7 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-let mode = 'closure', vendor = 'mts', images = [], config = { email: '' };
+let mode = 'closure', vendor = 'mts', images = [], texts = [], config = { email: '' };
 fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
 
 function setMode(m) {
@@ -84,6 +85,26 @@ $('tabWorq').onclick = () => setMode('worq');
 function setVendor(v) { vendor = v; $('vMts').classList.toggle('on', v === 'mts'); $('vVendor').classList.toggle('on', v === 'vendor'); }
 $('vMts').onclick = () => setVendor('mts');
 $('vVendor').onclick = () => setVendor('vendor');
+
+// Free, on-device text reading (Tesseract.js). Nothing is uploaded for this step.
+let tessLoad;
+function loadTesseract() {
+  return (tessLoad ||= new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    sc.onload = res; sc.onerror = () => rej(new Error('OCR failed to load'));
+    document.head.appendChild(sc);
+  }));
+}
+async function ocr(dataUrl) {
+  $('ocrStatus').textContent = 'Reading screenshot text…';
+  try {
+    await loadTesseract();
+    const { data } = await Tesseract.recognize(dataUrl, 'eng');
+    $('ocrStatus').textContent = 'Screenshot text read ✓';
+    return data.text || '';
+  } catch (e) { $('ocrStatus').textContent = 'Could not read screenshot text; using your description only.'; return ''; }
+}
 
 // Shrink screenshots so uploads stay small and fast on phones.
 function shrink(file) {
@@ -103,7 +124,10 @@ function shrink(file) {
 async function addFiles(files) {
   for (const f of files) {
     if (!f.type.startsWith('image/') || images.length >= 5) continue;
-    const d = await shrink(f); if (d) images.push(d);
+    const d = await shrink(f); if (!d) continue;
+    images.push(d); texts.push('');
+    renderThumbs();
+    texts[images.length - 1] = await ocr(d);
   }
   renderThumbs();
 }
@@ -112,7 +136,7 @@ function renderThumbs() {
   images.forEach((src, i) => {
     const d = document.createElement('div');
     d.innerHTML = `<img src="${src}" alt="screenshot ${i + 1}"><b title="Remove">×</b>`;
-    d.querySelector('b').onclick = () => { images.splice(i, 1); renderThumbs(); };
+    d.querySelector('b').onclick = () => { images.splice(i, 1); texts.splice(i, 1); renderThumbs(); };
     $('thumbs').appendChild(d);
   });
 }
@@ -127,7 +151,7 @@ async function run() {
   if (!description.trim() && !images.length) { alert('Add a description or a screenshot first.'); return; }
   $('go').disabled = $('regen').disabled = true; $('go').textContent = 'Generating…';
   try {
-    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images }) });
+    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images, ocrText: texts.join('\n\n') }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     $('out').textContent = j.text;

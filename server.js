@@ -13,7 +13,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 
 const send = (res, code, body, type = 'application/json') => {
   res.writeHead(code, { 'content-type': type });
-  res.end(typeof body === 'string' ? body : JSON.stringify(body));
+  res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 };
 
 function readBody(req, limit = 25 * 1024 * 1024) {
@@ -31,12 +31,12 @@ http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/api/generate') {
       const body = JSON.parse(await readBody(req));
       if (!['closure', 'worq'].includes(body.mode)) return send(res, 400, { error: 'Invalid mode' });
-      if (!body.description?.trim() && !body.images?.length) return send(res, 400, { error: 'Add a description or screenshot' });
+      if (!body.description?.trim() && !body.images?.length && !body.ocrText?.trim()) return send(res, 400, { error: 'Add a description or screenshot' });
       try {
         return send(res, 200, await generate(body, API_KEY, MODEL));
       } catch (e) {
         console.error(e.message);
-        return send(res, 200, { text: fallback(body.mode, body.description, body.vendor), source: 'template', warning: 'AI unavailable, used template' });
+        return send(res, 200, { text: fallback(body.mode, body.description, body.vendor, body.ocrText), source: 'template', warning: 'AI unavailable, used template' });
       }
     }
     if (req.method === 'GET') {
