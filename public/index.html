@@ -151,7 +151,7 @@ async function run() {
   if (!description.trim() && !images.length) { alert('Add a description or a screenshot first.'); return; }
   $('go').disabled = $('regen').disabled = true; $('go').textContent = 'Generating…';
   try {
-    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images, ocrText: texts.join('\n\n') }) });
+    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images: config.ai ? images : [], ocrText: texts.join('\n\n') }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     $('out').textContent = j.text;
