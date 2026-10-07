@@ -4,8 +4,11 @@ const MIN_WORDS = 10;
 
 const countWords = (s) => (s.trim().match(/\S+/g) || []).length;
 
+const EXAMPLE = 'Completed quarterly preventive maintenance on the ceiling heater. Contacted Facility Manager and gained access as required. Equipment was inspected and confirmed operating within acceptable standards. Photos attached to the inspection. All work order tasks completed.';
+
 const SYSTEM = `You write short maintenance work order text for a facilities team.
 Use any attached screenshots and the user's short description. Never invent specifics (part numbers, readings, names) that are not given or visible.
+If a screenshot shows a work order (e.g. its Work Description, equipment, or required steps such as "contact the Facility Manager to schedule access"), reflect those tasks in the comment, but only claim what the description or screenshot supports.
 Output ONLY the requested text, with no quotes, labels or commentary.`;
 
 function buildPrompt(mode, description, vendor) {
@@ -17,7 +20,9 @@ Maximum 15 words. No period at the end.
 Issue details: ${description || '(see screenshot)'}`;
   }
   return `Write a work order closure comment describing the repair that was completed so the work order can be closed.
-Rules: past tense, plain language, ${MIN_WORDS} words or more (aim for 15-30), one or two sentences, mention what was repaired/replaced, that it was tested or verified, and the result.
+Rules: past tense, plain professional language, ${MIN_WORDS} words or more. Use 3-5 short sentences: what work was completed, any access/contact steps required, what was inspected or repaired, the result, and that all tasks are complete.
+Match the style of this example (a quarterly preventive maintenance on a ceiling heater):
+"${EXAMPLE}"
 Repair details: ${description || '(see screenshot)'}`;
 }
 

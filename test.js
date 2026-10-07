@@ -8,4 +8,5 @@ assert.ok(countWords(fallback('closure', 'replaced capacitor', 'mts')) >= 10);
 assert.ok(countWords(enforce('closure', 'Fixed leak.', '', 'mts')) >= 10);
 assert.ok(/^WORQ MTS request to/.test(enforce('worq', 'Please fix it', 'repair door', 'mts')));
 assert.ok(buildPrompt('worq', 'x', 'vendor').includes('WORQ third party vendor needed to'));
+assert.ok(buildPrompt('closure', 'x', 'mts').includes('Completed quarterly preventive maintenance'));
 console.log('ok');
