@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WORQ Closure Helper</title>
+<style>
+  :root { --bg:#f4f6f8; --card:#fff; --fg:#1b2430; --muted:#5d6b7a; --accent:#1c64f2; --line:#d6dde5; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12171d; --card:#1b232c; --fg:#e8edf2; --muted:#93a1b0; --accent:#5b8dff; --line:#2e3946; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:640px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.3rem; margin:8px 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .tabs button { flex:1; }
+  button { font:inherit; padding:12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+  button.on, button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.6; }
+  label { display:block; font-weight:600; margin:0 0 6px; }
+  textarea { width:100%; min-height:90px; padding:10px; font:inherit; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  .drop { border:2px dashed var(--line); border-radius:8px; padding:16px; text-align:center; color:var(--muted); margin:12px 0; }
+  .thumbs { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .thumbs div { position:relative; }
+  .thumbs img { width:84px; height:84px; object-fit:cover; border-radius:8px; border:1px solid var(--line); }
+  .thumbs b { position:absolute; top:-6px; right:-6px; background:#d33; color:#fff; border-radius:50%; width:22px; height:22px; text-align:center; cursor:pointer; line-height:22px; }
+  .row { display:flex; gap:8px; margin-top:12px; } .row > * { flex:1; }
+  #vendorRow { margin-bottom:12px; } #out { font-weight:600; white-space:pre-wrap; }
+  .meta { color:var(--muted); font-size:.85rem; margin-top:8px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>WORQ Closure Helper</h1>
+  <div class="tabs">
+    <button id="tabClosure" class="on">Closure comment</button>
+    <button id="tabWorq">WORQ request</button>
+  </div>
+
+  <div class="card">
+    <div id="vendorRow" hidden>
+      <label>Who does the work?</label>
+      <div class="row" style="margin-top:0">
+        <button id="vMts" class="on">MTS</button>
+        <button id="vVendor">Third party vendor</button>
+      </div>
+    </div>
+    <label for="desc" id="descLabel">What repair was done?</label>
+    <textarea id="desc" placeholder="e.g. replaced bad capacitor on compressor"></textarea>
+    <div class="drop" id="drop">Paste, drop, or <a href="#" id="pick">choose</a> screenshots
+      <input type="file" id="file" accept="image/*" multiple hidden>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+    <div class="row"><button class="primary" id="go">Generate</button></div>
+  </div>
+
+  <div class="card" id="result" hidden>
+    <div id="out"></div>
+    <div class="meta" id="meta"></div>
+    <div class="row">
+      <button id="copy">Copy</button>
+      <button id="regen">Regenerate</button>
+      <button id="mail" hidden>Email</button>
+    </div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let mode = 'closure', vendor = 'mts', images = [], config = { email: '' };
+fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
+
+function setMode(m) {
+  mode = m;
+  $('tabClosure').classList.toggle('on', m === 'closure');
+  $('tabWorq').classList.toggle('on', m === 'worq');
+  $('vendorRow').hidden = m !== 'worq';
+  $('descLabel').textContent = m === 'worq' ? 'What needs to be repaired?' : 'What repair was done?';
+  $('desc').placeholder = m === 'worq' ? 'e.g. loose shingles on roof' : 'e.g. replaced bad capacitor on compressor';
+  $('result').hidden = true;
+}
+$('tabClosure').onclick = () => setMode('closure');
+$('tabWorq').onclick = () => setMode('worq');
+function setVendor(v) { vendor = v; $('vMts').classList.toggle('on', v === 'mts'); $('vVendor').classList.toggle('on', v === 'vendor'); }
+$('vMts').onclick = () => setVendor('mts');
+$('vVendor').onclick = () => setVendor('vendor');
+
+// Shrink screenshots so uploads stay small and fast on phones.
+function shrink(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const s = Math.min(1, 1568 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(null);
+    img.src = URL.createObjectURL(file);
+  });
+}
+async function addFiles(files) {
+  for (const f of files) {
+    if (!f.type.startsWith('image/') || images.length >= 5) continue;
+    const d = await shrink(f); if (d) images.push(d);
+  }
+  renderThumbs();
+}
+function renderThumbs() {
+  $('thumbs').innerHTML = '';
+  images.forEach((src, i) => {
+    const d = document.createElement('div');
+    d.innerHTML = `<img src="${src}" alt="screenshot ${i + 1}"><b title="Remove">×</b>`;
+    d.querySelector('b').onclick = () => { images.splice(i, 1); renderThumbs(); };
+    $('thumbs').appendChild(d);
+  });
+}
+$('pick').onclick = (e) => { e.preventDefault(); $('file').click(); };
+$('file').onchange = (e) => { addFiles(e.target.files); e.target.value = ''; };
+$('drop').ondragover = (e) => e.preventDefault();
+$('drop').ondrop = (e) => { e.preventDefault(); addFiles(e.dataTransfer.files); };
+document.addEventListener('paste', (e) => addFiles([...e.clipboardData.files]));
+
+async function run() {
+  const description = $('desc').value;
+  if (!description.trim() && !images.length) { alert('Add a description or a screenshot first.'); return; }
+  $('go').disabled = $('regen').disabled = true; $('go').textContent = 'Generating…';
+  try {
+    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    $('out').textContent = j.text;
+    const words = j.text.trim().split(/\s+/).length;
+    $('meta').textContent = `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}${j.warning ? ' · ' + j.warning : ''}`;
+    $('mail').hidden = mode !== 'worq' || !config.email;
+    $('result').hidden = false;
+    $('result').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) { alert(e.message); }
+  $('go').disabled = $('regen').disabled = false; $('go').textContent = 'Generate';
+}
+$('go').onclick = $('regen').onclick = run;
+$('copy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('out').textContent); $('copy').textContent = 'Copied ✓'; }
+  catch { const r = document.createRange(); r.selectNodeContents($('out')); getSelection().removeAllRanges(); getSelection().addRange(r); }
+  setTimeout(() => ($('copy').textContent = 'Copy'), 1500);
+};
+$('mail').onclick = () => {
+  const t = $('out').textContent;
+  location.href = `mailto:${config.email}?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(t)}`;
+};
+</script>
+</body>
+</html>
