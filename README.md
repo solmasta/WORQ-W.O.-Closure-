@@ -12,3 +12,7 @@ export WORQ_EMAIL=community-box@example.com   # optional; enables the Email butt
 npm start     # http://localhost:3000
 ```
 No dependencies (Node 18+). `npm test` runs the unit tests.
+
+## Deploy
+Hosted on Vercel (`api/` = serverless functions, `public/` = static site). The Vercel production
+branch is `main`; pushing to `main` updates the live site. `server.js` is only for local use.
