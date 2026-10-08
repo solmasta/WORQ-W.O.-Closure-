@@ -2,7 +2,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { generate, fallback } = require('./lib');
+const { generate, fallback, questionsFor } = require('./lib');
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -36,7 +36,7 @@ http.createServer(async (req, res) => {
         return send(res, 200, await generate(body, API_KEY, MODEL));
       } catch (e) {
         console.error(e.message);
-        return send(res, 200, { text: fallback(body.mode, body.description, body.vendor, body.ocrText, body.variant, { crew: body.crew, notes: body.notes, access: body.access, priority: body.priority, fm: body.fm }), source: 'template', warning: 'AI unavailable, used template' });
+        return send(res, 200, { text: fallback(body.mode, body.description, body.vendor, body.ocrText, body.variant, { crew: body.crew, notes: body.notes, access: body.access, priority: body.priority, fm: body.fm, answers: body.answers, address: body.address }), source: 'template', questions: questionsFor(body.mode, body), warning: 'AI unavailable, used template' });
       }
     }
     if (req.method === 'GET') {

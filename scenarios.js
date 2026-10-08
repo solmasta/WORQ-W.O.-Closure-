@@ -169,4 +169,6 @@ function matchScenario(text) {
   return { scenario: sc, subject: clean(subject), core: clean(core), suffix, plural: /s$/i.test(objWord), broken };
 }
 
-module.exports = { matchScenario, SCENARIOS };
+const hasLocation = (text) => LOCATIONS.test(text || '') || PREP_TAIL.test(text || '');
+
+module.exports = { matchScenario, SCENARIOS, hasLocation };

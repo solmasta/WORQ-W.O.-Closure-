@@ -46,4 +46,14 @@ assert.ok(fallback('worq', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Dave Fle
 assert.ok(fallback('closure', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Brianna Brungardt' }).includes('Contacted Facility Manager Brianna Brungardt and gained access as required.'));
 assert.ok(!/Contacted Facility Manager and/.test(fallback('closure', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Alan Macejak', access: 'fm' })));
 assert.ok(!/Facility Manager/.test(fallback('closure', 'sink clogged kitchen', 'mts')));
+const { questionsFor } = require('./lib');
+assert.ok(questionsFor('worq', { description: 'clogged sink' }).some((q) => q.id === 'where'));
+assert.ok(!questionsFor('worq', { description: 'clogged sink in the kitchen' }).some((q) => q.id === 'where'));
+assert.ok(questionsFor('closure', { description: 'clogged sink in the kitchen' }).some((q) => q.id === 'method'));
+assert.ok(questionsFor('worq', { description: 'zzz widget' }).some((q) => q.id === 'what'));
+assert.ok(!questionsFor('closure', { description: 'clogged sink in the kitchen', answers: { method: '__skip' } }).some((q) => q.id === 'method'));
+assert.ok(/plunger/i.test(fallback('closure', 'clogged sink in the kitchen', 'mts', '', 0, { answers: { method: 'Plunger' } })));
+assert.ok(!/All work order tasks completed/.test(fallback('closure', 'clogged sink in the kitchen', 'mts', '', 0, { answers: { followup: 'Parts on order' } })));
+assert.ok(fallback('worq', 'clogged sink in the kitchen', 'mts', '', 0, { address: '5401 S Wentworth Ave, Chicago, IL 60609' }).includes('Address: 5401 S Wentworth Ave, Chicago, IL 60609.'));
+assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { count: '2-3' } }).includes('Approximately 2-3 are affected.'));
 console.log('ok');

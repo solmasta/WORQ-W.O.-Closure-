@@ -27,11 +27,19 @@
   .row { display:flex; gap:8px; margin-top:12px; } .row > * { flex:1; }
   #vendorRow { margin-bottom:12px; } #out { font-weight:600; white-space:pre-wrap; }
   .meta { color:var(--muted); font-size:.85rem; margin-top:8px; }
+  input[type=text] { width:100%; padding:10px; font:inherit; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  .suggest { position:absolute; z-index:1000; left:0; right:0; background:var(--card); border:1px solid var(--line); border-radius:8px; max-height:240px; overflow:auto; box-shadow:0 6px 18px rgba(0,0,0,.25); }
+  .suggest div { padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--line); }
+  .suggest div:last-child { border-bottom:0; } .suggest div:hover { background:var(--bg); }
+  #map { height:210px; border-radius:8px; margin:8px 0; border:1px solid var(--line); }
+  .q { margin:12px 0 4px; font-weight:600; } .qopts { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .qopts button { padding:8px 12px; } .qopts input { flex:1; min-width:140px; }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
   summary { cursor:pointer; font-weight:600; padding:8px 0; }
   select:disabled { opacity:.5; }
   [hidden] { display:none !important; }
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 </head>
 <body>
 <main>
@@ -49,6 +57,14 @@
         <button id="vVendor">Third party vendor</button>
       </div>
     </div>
+    <label for="addr">Site address</label>
+    <div style="position:relative">
+      <input id="addr" type="text" autocomplete="off" placeholder="Start typing the street address…">
+      <div id="addrList" class="suggest" hidden></div>
+    </div>
+    <div class="row" style="margin:8px 0 0"><button id="useLoc" type="button">📍 Use my location</button><button id="clearAddr" type="button">Clear address</button></div>
+    <div id="map" hidden></div>
+    <div class="meta" id="addrNote" style="margin-bottom:12px"></div>
     <label>Pick it from the menus</label>
     <div class="grid">
       <select id="mCat" aria-label="Category"><option value="">Category…</option></select>
@@ -94,6 +110,10 @@
       <button id="regen">Regenerate</button>
       <button id="mail" hidden>Email</button>
     </div>
+    <div id="qs" hidden>
+      <div class="meta" style="margin-top:14px">A few quick questions to make this more accurate (tap an answer and it updates):</div>
+      <div id="qList"></div>
+    </div>
   </div>
 </main>
 <script>
@@ -103,7 +123,7 @@ let config = { email: '' };
 fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
 
 // Closing Comment and WORQ are completely separate: each keeps its own photos, text, menus and result.
-const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', fm: '', crew: '', access: '', priority: '',
+const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', fm: '', answers: {}, lastDesc: '', addr: '', lat: null, lon: null, crew: '', access: '', priority: '',
   mCat: '', mItem: '', mProb: '', mLoc: '', vendor: 'mts', variant: 0, guessed: '', result: null, status: '' });
 const state = { closure: fresh(), worq: fresh() };
 let mode = 'closure';
@@ -126,12 +146,15 @@ import('./catalog.js').then((m) => { catalog = m; fill($('fm'), m.FACILITY_MANAG
 // ---- keep the screen and the current tab's state in sync ----
 function save() {
   const st = S();
+  if ($('desc').value !== st.lastDesc) { st.answers = {}; st.lastDesc = $('desc').value; } // a new description means new questions
+  st.addr = $('addr').value;
   Object.assign(st, { desc: $('desc').value, notes: $('notes').value, fm: $('fm').value, crew: $('crew').value, access: $('access').value, priority: $('priority').value,
     mCat: $('mCat').value, mItem: $('mItem').value, mProb: $('mProb').value, mLoc: $('mLoc').value });
 }
 function load() {
   const st = S();
-  $('desc').value = st.desc; $('notes').value = st.notes; $('fm').value = st.fm; $('crew').value = st.crew; $('access').value = st.access; $('priority').value = st.priority;
+  $('desc').value = st.desc; $('notes').value = st.notes; $('fm').value = st.fm; $('addr').value = st.addr; $('addrList').hidden = true; $('addrNote').textContent = '';
+  st.lastDesc = st.desc; showMap(st); $('crew').value = st.crew; $('access').value = st.access; $('priority').value = st.priority;
   setMenus(st);
   $('vMts').classList.toggle('on', st.vendor === 'mts'); $('vVendor').classList.toggle('on', st.vendor === 'vendor');
   $('ocrStatus').textContent = st.status;
@@ -282,9 +305,113 @@ $('drop').ondragover = (e) => e.preventDefault();
 $('drop').ondrop = (e) => { e.preventDefault(); addFiles(e.dataTransfer.files); };
 document.addEventListener('paste', (e) => addFiles([...e.clipboardData.files]));
 
+// ---- follow-up questions ----
+function answer(id, value) { S().answers[id] = value; run(); }
+function renderQuestions(qs) {
+  const list = $('qList'); list.innerHTML = '';
+  $('qs').hidden = !qs || !qs.length;
+  (qs || []).forEach((q) => {
+    const wrap = document.createElement('div');
+    const label = document.createElement('div'); label.className = 'q'; label.textContent = q.q; wrap.appendChild(label);
+    const opts = document.createElement('div'); opts.className = 'qopts';
+    if (q.type === 'text') {
+      const inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = 'Type your answer';
+      const add = document.createElement('button'); add.textContent = 'Add'; add.onclick = () => { if (inp.value.trim()) answer(q.id, inp.value.trim()); };
+      inp.onkeydown = (e) => { if (e.key === 'Enter') add.click(); };
+      opts.append(inp, add);
+    } else {
+      q.options.forEach((label) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => answer(q.id, label); opts.appendChild(b); });
+    }
+    const skip = document.createElement('button'); skip.textContent = 'Skip'; skip.onclick = () => answer(q.id, '__skip'); opts.appendChild(skip);
+    wrap.appendChild(opts); list.appendChild(wrap);
+  });
+}
+
+// ---- site address: type-ahead search + map pin (OpenStreetMap data via Photon; free, no key) ----
+const STATES = { Alabama:'AL', Alaska:'AK', Arizona:'AZ', Arkansas:'AR', California:'CA', Colorado:'CO', Connecticut:'CT', Delaware:'DE', 'District of Columbia':'DC', Florida:'FL', Georgia:'GA', Hawaii:'HI', Idaho:'ID', Illinois:'IL', Indiana:'IN', Iowa:'IA', Kansas:'KS', Kentucky:'KY', Louisiana:'LA', Maine:'ME', Maryland:'MD', Massachusetts:'MA', Michigan:'MI', Minnesota:'MN', Mississippi:'MS', Missouri:'MO', Montana:'MT', Nebraska:'NE', Nevada:'NV', 'New Hampshire':'NH', 'New Jersey':'NJ', 'New Mexico':'NM', 'New York':'NY', 'North Carolina':'NC', 'North Dakota':'ND', Ohio:'OH', Oklahoma:'OK', Oregon:'OR', Pennsylvania:'PA', 'Rhode Island':'RI', 'South Carolina':'SC', 'South Dakota':'SD', Tennessee:'TN', Texas:'TX', Utah:'UT', Vermont:'VT', Virginia:'VA', Washington:'WA', 'West Virginia':'WV', Wisconsin:'WI', Wyoming:'WY' };
+function fmtAddr(p) {
+  const street = [p.housenumber, p.street || (p.housenumber ? '' : p.name)].filter(Boolean).join(' ');
+  const city = p.city || p.town || p.village || p.district || p.county || '';
+  const region = [STATES[p.state] || p.state || '', p.postcode || ''].filter(Boolean).join(' ');
+  return [street, city, region].filter(Boolean).join(', ');
+}
+const PHOTON = 'https://photon.komoot.io';
+let leafletLoad, map, marker, addrSeq = 0, addrTimer;
+function loadLeaflet() {
+  return (leafletLoad ||= new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+    sc.onload = res; sc.onerror = () => rej(new Error('map failed to load'));
+    document.head.appendChild(sc);
+  }));
+}
+async function showMap(st) {
+  if (st.lat == null) { $('map').hidden = true; return; }
+  $('map').hidden = false;
+  try {
+    await loadLeaflet();
+    if (!map) {
+      map = L.map('map').setView([st.lat, st.lon], 17);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+      marker = L.marker([st.lat, st.lon], { draggable: true }).addTo(map);
+      marker.on('dragend', () => { const ll = marker.getLatLng(); pinTo(ll.lat, ll.lng); });
+      map.on('click', (e) => pinTo(e.latlng.lat, e.latlng.lng));
+    }
+    map.invalidateSize(); map.setView([st.lat, st.lon], 17); marker.setLatLng([st.lat, st.lon]);
+  } catch (e) { $('addrNote').textContent = 'The map could not load, but the address was saved.'; }
+}
+async function reverse(lat, lon) {
+  const r = await fetch(`${PHOTON}/reverse?lon=${lon}&lat=${lat}&lang=en`);
+  const j = await r.json();
+  return j.features && j.features[0] ? fmtAddr(j.features[0].properties) : '';
+}
+async function pinTo(lat, lon) {   // the tech moved the pin or tapped the map
+  const st = S(); st.lat = lat; st.lon = lon; showMap(st);
+  $('addrNote').textContent = 'Looking up that spot…';
+  try {
+    const a = await reverse(lat, lon);
+    if (st === S()) { if (a) { st.addr = a; $('addr').value = a; } $('addrNote').textContent = a ? 'Pin set. Drag it to fine-tune.' : 'No street address found there; the pin location was still saved.'; }
+  } catch (e) { $('addrNote').textContent = 'Could not look up that spot.'; }
+}
+async function searchAddr(q) {
+  const my = ++addrSeq;
+  try {
+    const r = await fetch(`${PHOTON}/api/?q=${encodeURIComponent(q)}&limit=8&lang=en`);
+    const j = await r.json();
+    if (my !== addrSeq) return; // a newer search replaced this one
+    const seen = new Set();
+    const items = (j.features || []).map((f) => ({ label: fmtAddr(f.properties), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], house: !!f.properties.housenumber }))
+      .filter((x) => x.label && !seen.has(x.label) && seen.add(x.label)).sort((a, b) => b.house - a.house).slice(0, 6);
+    const box = $('addrList'); box.innerHTML = '';
+    if (!items.length) { box.innerHTML = '<div>No matches. Keep typing or drop a pin on the map.</div>'; box.hidden = false; return; }
+    items.forEach((it) => {
+      const d = document.createElement('div'); d.textContent = it.label;
+      d.onmousedown = d.ontouchstart = (e) => { e.preventDefault(); const st = S(); st.addr = it.label; st.lat = it.lat; st.lon = it.lon; $('addr').value = it.label; box.hidden = true; $('addrNote').textContent = 'Pin set. Drag it to fine-tune.'; showMap(st); };
+      box.appendChild(d);
+    });
+    box.hidden = false;
+  } catch (e) { $('addrNote').textContent = 'Address search is unavailable right now. You can still type the address.'; }
+}
+$('addr').oninput = () => {
+  const st = S(); st.addr = $('addr').value; st.lat = st.lon = null; $('map').hidden = true; $('addrNote').textContent = '';
+  clearTimeout(addrTimer);
+  const q = $('addr').value.trim();
+  if (q.length < 4) { $('addrList').hidden = true; return; }
+  addrTimer = setTimeout(() => searchAddr(q), 350);
+};
+$('addr').onblur = () => setTimeout(() => ($('addrList').hidden = true), 200);
+$('clearAddr').onclick = () => { const st = S(); st.addr = ''; st.lat = st.lon = null; $('addr').value = ''; $('map').hidden = true; $('addrNote').textContent = ''; $('addrList').hidden = true; };
+$('useLoc').onclick = () => {
+  if (!navigator.geolocation) { $('addrNote').textContent = 'Location is not available on this device.'; return; }
+  $('addrNote').textContent = 'Finding your location…';
+  navigator.geolocation.getCurrentPosition((pos) => pinTo(pos.coords.latitude, pos.coords.longitude),
+    () => { $('addrNote').textContent = 'Could not get your location. Allow location access or type the address.'; }, { enableHighAccuracy: true, timeout: 15000 });
+};
+
 // ---- generate ----
 function showResult(r) {
   $('result').hidden = !r;
+  renderQuestions(r ? r.questions : []);
   if (!r) return;
   $('out').textContent = r.text; $('meta').textContent = r.meta;
   $('mail').hidden = mode !== 'worq' || !config.email;
@@ -297,11 +424,11 @@ async function run() {
   try {
     const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mode: m, vendor: st.vendor, description: st.desc, images: config.ai ? st.images : [], ocrText: st.texts.join('\n\n'),
-        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, notes: st.notes.trim() }) });
+        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, answers: st.answers, address: st.addr, notes: st.notes.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     const words = j.text.trim().split(/\s+/).length;
-    st.result = { text: j.text, meta: `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}${j.warning ? ' · ' + j.warning : ''}` };
+    st.result = { text: j.text, questions: j.questions || [], meta: `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}${j.warning ? ' · ' + j.warning : ''}` };
     if (m === mode) { showResult(st.result); $('result').scrollIntoView({ behavior: 'smooth' }); }
   } catch (e) { alert(e.message); }
   $('go').disabled = $('regen').disabled = false; $('go').textContent = label;
