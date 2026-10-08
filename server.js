@@ -9,10 +9,10 @@ const API_KEY = process.env.ANTHROPIC_API_KEY;
 const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5-5';
 const WORQ_EMAIL = process.env.WORQ_EMAIL || 'CREWOs@bmo.com';
 const PUB = path.join(__dirname, 'public');
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.ico': 'image/x-icon', '.csv': 'text/csv' };
 
 const send = (res, code, body, type = 'application/json') => {
-  res.writeHead(code, { 'content-type': type });
+  res.writeHead(code, { 'content-type': type, 'cache-control': 'no-cache' });
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 };
 

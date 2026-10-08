@@ -1,0 +1,22 @@
+{
+  "id": "/",
+  "name": "WORQ Helper",
+  "short_name": "WORQ",
+  "description": "Create WORQ requests and work order closing comments from a few picks, photos and a branch address.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6f8",
+  "theme_color": "#1c64f2",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "New WORQ request", "short_name": "WORQ", "url": "/?tab=worq&source=shortcut", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "New closing comment", "short_name": "Closing", "url": "/?tab=closure&source=shortcut", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}

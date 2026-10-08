@@ -16,3 +16,8 @@ No dependencies (Node 18+). `npm test` runs the unit tests.
 ## Deploy
 Hosted on Vercel (`api/` = serverless functions, `public/` = static site). The Vercel production
 branch is `main`; pushing to `main` updates the live site. `server.js` is only for local use.
+
+## Install on a phone (PWA)
+- **Android (Chrome):** open the site, tap **Install app** (or the browser menu, then Install app).
+- **iPhone (Safari):** tap Share, then **Add to Home Screen**.
+The app keeps only its own files for quick opening. It never stores anything a technician types or any photo.

@@ -2,7 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#1c64f2">
+<meta name="application-name" content="WORQ Helper">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="WORQ">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
 <title>WORQ Closure Helper</title>
 <style>
   :root { --bg:#f4f6f8; --card:#fff; --fg:#1b2430; --muted:#5d6b7a; --accent:#1c64f2; --line:#d6dde5; }
@@ -45,6 +54,10 @@
 <body>
 <main>
   <h1>WORQ Closure Helper</h1>
+  <div class="card" id="installBox" hidden style="padding:12px">
+    <div id="installText" style="font-weight:600"></div>
+    <div class="row" style="margin-top:8px"><button class="primary" id="installBtn" hidden>Install app</button><button id="installClose" type="button" style="flex:0 0 auto">Not now</button></div>
+  </div>
   <div class="tabs">
     <button id="tabClosure" class="on">Closure comment</button>
     <button id="tabWorq">WORQ request</button>
@@ -488,7 +501,29 @@ $('mail').onclick = () => {
 $('nte').oninput = () => { S().nte = $('nte').value; $('nte').classList.remove('bad'); };
 $('vendorName').oninput = () => { S().vendorName = $('vendorName').value; };
 $('fm').onchange = () => $('fm').classList.remove('bad');
-setMode('closure');
+// ---- install as an app (Android / iPhone) ----
+const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+let installEvent = null;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault(); installEvent = e;
+  if (standalone) return;
+  $('installText').textContent = 'Install WORQ Helper on this phone for one-tap access, like an app.';
+  $('installBtn').hidden = false; $('installBox').hidden = false;
+});
+$('installBtn').onclick = async () => {
+  if (!installEvent) return;
+  installEvent.prompt(); await installEvent.userChoice.catch(() => {});
+  installEvent = null; $('installBox').hidden = true;
+};
+$('installClose').onclick = () => { $('installBox').hidden = true; };
+window.addEventListener('appinstalled', () => { $('installBox').hidden = true; });
+if (isIOS && !standalone) {           // iPhone has no install button, so show how
+  $('installText').innerHTML = 'Install on your iPhone: tap the <b>Share</b> button (the square with an arrow) in Safari, then <b>Add to Home Screen</b>.';
+  $('installBox').hidden = false;
+}
+setMode(new URLSearchParams(location.search).get('tab') === 'worq' ? 'worq' : 'closure');   // app shortcuts open the right tab
 loadSites();
 </script>
 </body>
