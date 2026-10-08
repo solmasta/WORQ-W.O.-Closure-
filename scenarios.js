@@ -2,7 +2,7 @@
 // Problem-aware wording: matches "object + symptom" in any word order (e.g. "sink clogged kitchen")
 // and returns the verb, subject and the steps a technician would realistically perform.
 
-const LOCATIONS = /\b(kitchen|bathroom|restroom|break ?room|lunch ?room|lobby|office|hallway|vault|teller (?:line|area|station)|server room|storage room|stock room|conference room|basement|exterior|parking lot|loading dock|dock|mens|men's|womens|women's|roof|entrance|stairwell|atm)\b/i;
+const LOCATIONS = /\b(exterior|interior|outdoor|indoor|kitchen|bathroom|restroom|break ?room|lunch ?room|lobby|office|hallway|vault|teller (?:line|area|station)|server room|it room|idf|mdf|data closet|storage room|stock room|conference room|basement|exterior|parking lot|loading dock|dock|mens|men's|womens|women's|roof|entrance|stairwell|atm)\b/i;
 const PREP_TAIL = /\b(in|at|by|near|on|inside|outside|behind|under|above)\s+(?:the\s+)?([\w'/ -]+)$/i;
 
 const ADJ = [
@@ -37,6 +37,8 @@ const SCENARIOS = [
     steps: 'Re-secured the loose shingles, replaced any missing or damaged pieces, sealed the affected area and inspected the surrounding roof.' }),
   S({ id: 'gutter', obj: /gutter|downspout/i, sym: null, imp: 'clear', past: 'cleared',
     steps: 'Removed debris from the gutters and downspouts, flushed them with water to confirm proper drainage and secured any loose sections.' }),
+  S({ id: 'wallpack', obj: /wall ?packs?(?: lights?)?|(?:exterior|outdoor|parking lot|pole|security|flood|building) lights?|flood ?lights?|pole lights?/i, sym: null, imp: 'repair', past: 'repaired',
+    steps: 'Used a lift to reach the fixtures, replaced the failed lamps, photocells or drivers, checked the wiring connections, and confirmed all lights come on at dusk and operate properly.' }),
   S({ id: 'light', obj: /light|lamp|bulb|ballast|fixture|led|exit sign|emergency light/i, sym: /out|burn|dead|flicker|not work|broke|dim|buzz|hum|won'?t/i, imp: 'replace', past: 'replaced',
     steps: 'Replaced the failed lamp, checked the ballast or driver and wiring connections, and confirmed the fixture is working properly.' }),
   S({ id: 'outlet', obj: /outlet|receptacle|switch|gfci|plug/i, sym: /dead|no power|not work|broke|spark|burn|loose|hot|trip|crack/i, imp: 'repair', past: 'repaired',
@@ -45,6 +47,8 @@ const SCENARIOS = [
     steps: 'Disassembled the lock, cleaned and lubricated the mechanism, replaced the worn components as needed, and tested with the key several times for smooth operation.' }),
   S({ id: 'door', obj: /door|gate/i, sym: /stick|close|latch|rub|sag|loose|hinge|drag|slam|align|hold|won'?t|not/i, imp: 'repair', past: 'repaired',
     steps: 'Adjusted and tightened the hinges, aligned the strike plate and latch, lubricated the moving parts and confirmed the door opens, closes and latches smoothly.' }),
+  S({ id: 'excess-heat', obj: /heat|hot|temperature|warm|overheat/i, sym: /excessive|too hot|too warm|overheat|extreme|high temp|getting hot|very hot|hot in|warm in|running hot/i, imp: 'repair', past: 'repaired', fixedSubject: 'excessive heat',
+    steps: 'Checked the cooling equipment, airflow, thermostat settings and ventilation, corrected the fault found, and monitored the space until temperatures returned to the normal range.' }),
   S({ id: 'heat', obj: /heat|furnace|boiler|unit heater|space heater|hvac|rtu|thermostat/i, sym: /no heat|not heat|won'?t heat|cold|not work|broke|won'?t|fail|short cycl|noisy|loud/i, imp: 'repair', past: 'repaired',
     steps: 'Diagnosed the loss of heat, checked the thermostat, power supply and heating components, repaired the fault, and confirmed the unit heats to the setpoint.' }),
   S({ id: 'cooling', obj: /\bac\b|a\/c|air condition|cooling|hvac|rtu|condenser|split|compressor|chiller|thermostat/i, sym: /no cool|not cool|warm|hot|won'?t|not work|broke|ice|freez|fail|noisy|loud|leak/i, imp: 'repair', past: 'repaired',
@@ -81,8 +85,45 @@ const SCENARIOS = [
 
 const OBJ_NAME = { heat: 'heating system', furnace: 'furnace', ac: 'AC unit', 'a/c': 'AC unit', cooling: 'cooling system', hvac: 'HVAC unit', rtu: 'rooftop unit',
   'hot water': 'water heater', condenser: 'condenser', compressor: 'compressor', thermostat: 'thermostat' };
-const PREFIX_PLACES = /^(kitchen|bathroom|restroom|break ?room|lunch ?room|mens|men's|womens|women's|office)$/i;
+const PREFIX_PLACES = /^(exterior|interior|outdoor|indoor|kitchen|bathroom|restroom|break ?room|lunch ?room|mens|men's|womens|women's|office)$/i;
 const wordAround = (t, m) => { const re = /[\w'/-]+/g; let w; while ((w = re.exec(t))) if (m.index >= w.index && m.index < w.index + w[0].length) return w[0]; return m[0]; };
+
+const EXTRA = {
+  'toilet-clog': { found: 'Investigation found the drain line blocked, preventing proper flushing.' },
+  'toilet-run': { found: 'Investigation found worn tank components causing the toilet to run continuously.' },
+  'floor-drain': { found: 'Investigation found the floor drain obstructed with debris and buildup.' },
+  disposal: { found: 'Investigation found the disposal jammed with debris.' },
+  'sink-clog': { found: 'Investigation found a blockage in the drain line from buildup and debris.' },
+  'faucet-leak': { found: 'Investigation found a worn washer or cartridge allowing water to leak.' },
+  'pipe-leak': { found: 'Investigation traced the water loss to a leaking joint in the line.', invest: true },
+  'tile-water': { found: 'Investigation found a water-damaged tile and traced the source of the moisture.', invest: true, crew: 1, access: 'Ladder required.' },
+  'roof-leak': { found: 'Investigation found a damaged area on the roof allowing water to enter.', invest: true, crew: 2, access: 'Roof access required.' },
+  shingles: { found: 'Inspection found shingles lifted or missing from wear and wind exposure.', crew: 2, access: 'Roof access required.' },
+  gutter: { found: 'Inspection found the gutters and downspouts obstructed with leaves and debris.', crew: 2, access: 'Ladder required.' },
+  wallpack: { found: 'Investigated each fixture and found failed lamps, photocells or driver components, and checked power at each fixture.', invest: true, crew: 2, access: 'Lift or ladder required.', cond: true },
+  light: { found: 'Investigation found a failed lamp or driver preventing the fixture from working.', invest: true, cond: true },
+  outlet: { found: 'Investigation found a faulty device with no reliable power at the outlet.', invest: true, cond: true },
+  lock: { found: 'Investigation found worn internal components preventing the lock from operating smoothly.', invest: true },
+  door: { found: 'Investigation found misaligned hinges and latch preventing the door from operating properly.', invest: true },
+  'excess-heat': { found: 'Investigation found inadequate cooling and airflow contributing to the high temperatures.', invest: true, issues: true },
+  heat: { found: 'Investigation found a fault in the heating system preventing proper operation.', invest: true, cond: true },
+  cooling: { found: 'Investigation found a fault in the cooling system affecting proper operation.', invest: true, cond: true },
+  hotwater: { found: 'Investigation found the water heater not heating properly.', invest: true },
+  fan: { found: 'Investigation found a dirty or worn fan affecting airflow.', invest: true, cond: true },
+  hole: { found: 'Inspection found damaged drywall that required repair.' },
+  'paint-peel': { found: 'Inspection found loose and peeling paint requiring repair.' },
+  floor: { found: 'Inspection found damaged flooring creating a safety concern.' },
+  window: { found: 'Inspection found a damaged window component.', invest: true },
+  pothole: { found: 'Inspection found a damaged area of pavement.', crew: 2 },
+  sidewalk: { found: 'Inspection found a damaged section creating a trip hazard.' },
+  fence: { found: 'Inspection found loose and damaged components.' },
+  sign: { found: 'Inspection found the sign damaged or not operating.', invest: true, crew: 2, access: 'Lift or ladder required.' },
+  mold: { found: 'Inspection found mold growth from excess moisture.' },
+  smoke: { found: 'Inspection found the detector failing its test.' },
+  blinds: { found: 'Inspection found damaged blind components.' },
+  cabinet: { found: 'Inspection found loose or damaged components.' },
+};
+for (const sc of SCENARIOS) Object.assign(sc, EXTRA[sc.id] || {});
 
 const clean = (s) => s.replace(/[.\s]+$/, '').replace(/\s+/g, ' ').trim();
 
@@ -96,7 +137,7 @@ function matchScenario(text) {
   // Split off a trailing "in/at/by ..." place, then build "<problem> <place> <object>".
   let body = t, suffix = '';
   const pm = PREP_TAIL.exec(t);
-  if (pm && pm.index > 0) { suffix = `${pm[1].toLowerCase()} the ${clean(pm[2]).toLowerCase()}`; body = t.slice(0, pm.index).trim(); }
+  if (pm && pm.index > 0) { suffix = `${pm[1].toLowerCase()} the ${clean(pm[2]).replace(/^the\s+/i, '')}`; body = t.slice(0, pm.index).trim(); }
   const loc = LOCATIONS.exec(body);
   let place = '';
   if (loc && !suffix) {
@@ -120,10 +161,11 @@ function matchScenario(text) {
     .replace(/\b(please|pls|fix|repair|replace|the|a|an|my|is|are|has|have|not|working|work|need|needs|to|and|of|problem|issue|request|worq|mts|vendor|third|party|needed|clogged|clog|un?clog\w*|leak\w*|drip\w*|broke\w*|crack\w*|stuck|jam\w*|out|no|won'?t|flush\w*|burn\w*|dead|dim|flicker\w*|stain\w*|peel\w*|cool\w*|heat\w*|warm|hot|run\w*)\b/gi, ' '));
   if (objWord === 'paint' && rest) objWord = '';
   const rest2 = adj === 'water-stained' ? clean(rest.replace(/\bwater\b/gi, ' ')) : rest;
-  const parts = [adj, place, rest2, objWord].filter(Boolean);
+  const parts = sc.fixedSubject ? [sc.fixedSubject] : [adj, place, rest2, objWord].filter(Boolean);
   const seen = new Set();
   const subject = parts.join(' ').split(' ').filter((w) => (seen.has(w.toLowerCase()) ? false : seen.add(w.toLowerCase()))).join(' ') + (suffix ? ` ${suffix}` : '');
-  return { scenario: sc, subject: clean(subject) };
+  const broken = /not work|won'?t work|inoperab|\bout\b|\bdead\b|burn|no power|stopped working/i.test(t);
+  return { scenario: sc, subject: clean(subject), plural: /s$/i.test(objWord), broken };
 }
 
 module.exports = { matchScenario, SCENARIOS };

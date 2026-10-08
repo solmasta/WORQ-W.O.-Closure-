@@ -15,19 +15,24 @@ Output ONLY the requested text, with no quotes, labels or commentary.`;
 
 const ocrBlock = (t) => (t && t.trim() ? `\nText read from the work order screenshot (may contain OCR errors):\n${t.trim().slice(0, 3000)}` : '');
 
-function buildPrompt(mode, description, vendor, ocrText = '', variant = 0) {
+function buildPrompt(mode, description, vendor, ocrText = '', variant = 0, opts = {}) {
+  const crewLine = Number(opts.crew) ? `\nCrew size: ${Number(opts.crew)} man job.` : '';
+  const notesLine = opts.notes && opts.notes.trim() ? `\nExtra details from the technician (include them): ${opts.notes.trim()}` : '';
   if (mode === 'worq') {
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
     return `Write ONE line that will be the start of an email requesting a work order.
-It must begin exactly with "WORQ ${who} " followed by a brief plain description of the repair needed (lowercase verb, e.g. "repair compressor", "repair loose shingles").
-Maximum 15 words. No period at the end.
-Issue details: ${description || '(see screenshot)'}${ocrBlock(ocrText)}`;
+It must begin exactly with "WORQ ${who} " followed by what to investigate and repair, naming the equipment, the symptom and the location. Use 1-3 short sentences. Add the crew size and any access or equipment need (lift, ladder, roof access) when it logically applies.
+Match the style of these real examples:
+"WORQ MTS request to investigate and repair exterior wall pack lights that are not working. This is a 2 man job."
+"WORQ MTS request to investigate and repair issues with excessive heat in the IT Room"
+"WORQ third party vendor needed to repair loose shingles"
+Issue details: ${description || '(see screenshot)'}${crewLine}${notesLine}${ocrBlock(ocrText)}`;
   }
   return `Write a work order closure comment describing the repair that was completed so the work order can be closed.
-Rules: past tense, plain professional language, ${MIN_WORDS} words or more. Use 3-5 short sentences with realistic, specific technician detail for this kind of problem (e.g. a clogged sink: used a drain snake, flushed the line, checked the trap for leaks; a running toilet: replaced the flapper and fill valve): what work was completed, any access/contact steps required, what was inspected or repaired, the result, and that all tasks are complete.
+Rules: past tense, plain professional language, ${MIN_WORDS} words or more. Use 4-6 detailed sentences: what was investigated and found, the work performed, testing and the result. Include realistic, specific technician detail for this kind of problem (e.g. a clogged sink: used a drain snake, flushed the line, checked the trap for leaks; a running toilet: replaced the flapper and fill valve): what work was completed, any access/contact steps required, what was inspected or repaired, the result, and that all tasks are complete.
 ${variant ? `This is regeneration #${variant}: use noticeably different wording and sentence structure than a standard version.\n` : ''}Match the style of this example (a quarterly preventive maintenance on a ceiling heater):
 "${EXAMPLE}"
-Repair details: ${description || '(see screenshot)'}${ocrBlock(ocrText)}`;
+Repair details: ${description || '(see screenshot)'}${crewLine}${notesLine}${ocrBlock(ocrText)}`;
 }
 
 // Pull the useful bits out of OCR text from a work order screenshot.
@@ -132,6 +137,22 @@ function requestSegment(desc) {
   return (segs[segs.length - 1] || '').replace(/[.\s]+$/, '').slice(0, 90);
 }
 
+const sentence = (x) => { const t = (x || '').trim().replace(/\s+/g, ' '); return t ? t.charAt(0).toUpperCase() + t.slice(1).replace(/[.\s]*$/, '.') : ''; };
+const crewWord = (n) => ({ 1: '1 man', 2: '2 man', 3: '3 man', 4: '4 man' }[n] || '');
+
+// The WORQ request: "WORQ MTS request to investigate and repair <problem> <condition>. <crew / access / notes>"
+function worqRequest(sm, vendor, opts = {}) {
+  const sc = sm.scenario;
+  const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
+  const hasAdj = /^(burned-out|dead|broken)\b/.test(sm.subject);
+  const cond = sc.cond && sm.broken && !hasAdj ? (sm.plural ? ' that are not working' : ' that is not working') : '';
+  const verb = cond && sc.imp === 'replace' ? 'repair' : sc.imp;
+  const core = sc.issues ? `investigate and repair issues with ${sm.subject}` : `${sc.invest ? 'investigate and ' : ''}${verb} ${sm.subject}${cond}`;
+  const crew = Number(opts.crew) || sc.crew || 0;
+  const extra = [crew > 1 || opts.crew ? `This is a ${crewWord(crew)} job.` : '', sc.access && !opts.crew ? sc.access : '', sentence(opts.notes)].filter(Boolean);
+  return `WORQ ${who} ${core}${extra.length ? '. ' + extra.join(' ') : ''}`;
+}
+
 const VERIFY = [
   'Cleaned up the work area and left it safe for normal use.',
   'Left the area clean and safe, with all debris removed.',
@@ -143,17 +164,19 @@ const TAIL = [
   'Photos attached for reference. All required work order tasks completed.',
 ];
 
-function templateClosure(description, ocrText, variant = 0) {
+function templateClosure(description, ocrText, variant = 0, opts = {}) {
   const w = parseWorkOrder(ocrText);
   const pick = (arr) => arr[Math.abs(variant) % arr.length];
   const d = (description || '').trim().replace(/[.\s]+$/, '');
   const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  const extras = () => [sentence(opts.notes), Number(opts.crew) ? `Work was completed by a ${crewWord(Number(opts.crew))} crew.` : ''].filter(Boolean);
   const scen = w.preventive ? null : matchScenario(d || requestSegment(w.desc));
   if (scen) {
     const { scenario: sc, subject } = scen;
-    const parts = [`${cap(sc.past)} the ${subject}.`];
+    const parts = [sc.issues ? `Investigated and repaired the issues with ${subject}.` : `${cap(sc.past)} the ${subject}.`];
+    if (sc.found) parts.push(sc.found);
     if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
-    parts.push(sc.steps, pick(VERIFY), pick(TAIL));
+    parts.push(sc.steps, ...extras(), pick(VERIFY), pick(TAIL));
     return parts.join(' ');
   }
   const task = w.preventive ? { verb: null } : extractTask(d, ocrText);
@@ -166,36 +189,40 @@ function templateClosure(description, ocrText, variant = 0) {
     if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
     if (rule) parts.push(rule.pm);
     if (d) parts.push(`${cap(d)}.`);
-    parts.push('Equipment was inspected and confirmed operating within acceptable standards.');
+    parts.push(...extras(), 'Equipment was inspected and confirmed operating within acceptable standards.');
   } else if (task.verb) {
     parts.push(`${cap(task.verb.lead ? task.verb.lead(task.first) : task.verb.past)} ${task.object}.`);
     if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
     const repairLike = task.verb.past === 'repaired';
-    parts.push(repairLike && rule ? rule.fix : task.verb.steps(task.object));
+    parts.push(repairLike && rule ? rule.fix : task.verb.steps(task.object), ...extras());
     parts.push(pick(VERIFY));
   } else {
     const seg = !d && !w.equipment ? requestSegment(w.desc) : '';
     parts.push(d ? `${cap(d)}.` : seg ? `Completed repair of ${seg.charAt(0).toLowerCase() + seg.slice(1)}.` : `Completed repair${on || ' as requested in the work order'}.`);
     if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
     if (rule) parts.push(rule.fix);
-    parts.push(pick(VERIFY));
+    parts.push(...extras(), pick(VERIFY));
   }
   parts.push(pick(TAIL));
   return parts.join(' ');
 }
 
 // Used when no API key is configured, or the API call fails.
-function fallback(mode, description, vendor, ocrText = '', variant = 0) {
+function fallback(mode, description, vendor, ocrText = '', variant = 0, opts = {}) {
   const w = parseWorkOrder(ocrText);
   const sm = mode === 'worq' ? matchScenario((description || '').trim() || requestSegment(w.desc)) : null;
   const t = mode === 'worq' ? extractTask(description, ocrText) : null;
   const d = (t && t.verb && t.text.charAt(0).toLowerCase() + t.text.slice(1)) || (description || '').trim().replace(/[.\s]+$/, '') || (t && t.verb ? t.text.charAt(0).toLowerCase() + t.text.slice(1) : '') || (mode === 'worq' && w.equipment ? 'repair ' + w.equipment : '') || (mode === 'worq' && requestSegment(w.desc) ? 'repair ' + requestSegment(w.desc).toLowerCase() : '');
+  if (mode === 'worq' && sm) return worqRequest(sm, vendor, opts);
   if (mode === 'worq') {
     const imperative = sm ? `${sm.scenario.imp} ${sm.subject}` : t && t.verb ? d.replace(/^hung\b/i, 'hang') : d && !/^repair\b/i.test(d) ? `repair ${d}` : d;
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
-    return `WORQ ${who} ${imperative || 'repair issue noted in attached photo'}`;
+    const base = imperative || 'repair issue noted in attached photo';
+    const crew = Number(opts.crew);
+    const extra = [crew ? `This is a ${crewWord(crew)} job.` : '', sentence(opts.notes)].filter(Boolean);
+    return `WORQ ${who} ${/^repair\b/.test(base) ? 'investigate and ' + base : base}${extra.length ? '. ' + extra.join(' ') : ''}`;
   }
-  return templateClosure(description, ocrText, variant);
+  return templateClosure(description, ocrText, variant, opts);
 }
 
 // Guarantee the closure rule even if the model is terse.
@@ -208,13 +235,13 @@ function enforce(mode, text, description, vendor, ocrText) {
   return t;
 }
 
-async function generate({ mode, description, vendor, images = [], ocrText = '', variant = 0 }, apiKey, model) {
-  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant), source: 'template' };
+async function generate({ mode, description, vendor, images = [], ocrText = '', variant = 0, crew = '', notes = '' }, apiKey, model) {
+  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant, { crew, notes }), source: 'template' };
   const content = images.slice(0, 5).map((src) => {
     const m = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(src);
     return m && { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } };
   }).filter(Boolean);
-  content.push({ type: 'text', text: buildPrompt(mode, description, vendor, ocrText, variant) });
+  content.push({ type: 'text', text: buildPrompt(mode, description, vendor, ocrText, variant, { crew, notes }) });
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -227,4 +254,4 @@ async function generate({ mode, description, vendor, images = [], ocrText = '', 
   return { text: enforce(mode, text, description, vendor, ocrText), source: 'ai' };
 }
 
-module.exports = { extractTask, parseWorkOrder, templateClosure, generate, fallback, enforce, countWords, buildPrompt, MIN_WORDS };
+module.exports = { worqRequest, extractTask, parseWorkOrder, templateClosure, generate, fallback, enforce, countWords, buildPrompt, MIN_WORDS };

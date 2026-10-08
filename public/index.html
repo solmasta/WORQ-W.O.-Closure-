@@ -18,7 +18,7 @@
   button.on, button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
   button:disabled { opacity:.6; }
   label { display:block; font-weight:600; margin:0 0 6px; }
-  textarea { width:100%; min-height:90px; padding:10px; font:inherit; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  textarea, select { width:100%; min-height:90px; padding:10px; font:inherit; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--fg); }
   .drop { border:2px dashed var(--line); border-radius:8px; padding:16px; text-align:center; color:var(--muted); margin:12px 0; }
   .thumbs { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
   .thumbs div { position:relative; }
@@ -48,6 +48,10 @@
     </div>
     <label for="desc" id="descLabel">What repair was done?</label>
     <textarea id="desc" placeholder="e.g. replaced bad capacitor on compressor"></textarea>
+    <div style="margin-top:12px"><label for="notes">Extra details (optional)</label>
+      <textarea id="notes" style="min-height:60px" placeholder="e.g. replaced 3 lamps and a photocell; needs a lift"></textarea></div>
+    <div style="margin-top:12px"><label for="crew">Crew size (optional)</label>
+      <select id="crew"><option value="">Not specified</option><option value="1">1 man job</option><option value="2">2 man job</option><option value="3">3 man job</option></select></div>
     <div class="row" style="margin:12px 0 0">
       <button id="camBtn" type="button">📷 Take photo</button>
       <button id="pickBtn" type="button">🖼️ Upload photo or file</button>
@@ -85,7 +89,8 @@ function setMode(m) {
   $('tabWorq').classList.toggle('on', m === 'worq');
   $('vendorRow').hidden = m !== 'worq';
   $('descLabel').textContent = m === 'worq' ? 'What needs to be repaired?' : 'What repair was done?';
-  $('desc').placeholder = m === 'worq' ? 'e.g. loose shingles on roof' : 'e.g. replaced bad capacitor on compressor';
+  $('desc').placeholder = m === 'worq' ? 'e.g. exterior wall pack lights not working' : 'e.g. sink clogged kitchen';
+  $('notes').placeholder = m === 'worq' ? 'e.g. needs a lift; after hours only' : 'e.g. replaced 3 lamps and a photocell';
   $('result').hidden = true;
 }
 $('tabClosure').onclick = () => setMode('closure');
@@ -186,7 +191,7 @@ async function run() {
   if (!description.trim() && !images.length) { alert('Add a description or a screenshot first.'); return; }
   $('go').disabled = $('regen').disabled = true; $('go').textContent = 'Generating…';
   try {
-    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images: config.ai ? images : [], ocrText: texts.join('\n\n'), variant }) });
+    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images: config.ai ? images : [], ocrText: texts.join('\n\n'), variant, crew: $('crew').value, notes: $('notes').value.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     $('out').textContent = j.text;

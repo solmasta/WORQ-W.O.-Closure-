@@ -2,8 +2,8 @@
 const assert = require('assert');
 const { parseWorkOrder, templateClosure, fallback, enforce, countWords, buildPrompt } = require('./lib');
 
-assert.strictEqual(fallback('worq', 'repair compressor', 'mts'), 'WORQ MTS request to repair compressor');
-assert.strictEqual(fallback('worq', 'repair loose shingles', 'vendor'), 'WORQ third party vendor needed to repair loose shingles');
+assert.strictEqual(fallback('worq', 'repair compressor', 'mts'), 'WORQ MTS request to investigate and repair compressor');
+assert.strictEqual(fallback('worq', 'repair loose shingles', 'vendor'), 'WORQ third party vendor needed to repair loose shingles. This is a 2 man job. Roof access required.');
 assert.ok(countWords(fallback('closure', 'replaced capacitor', 'mts')) >= 10);
 assert.ok(countWords(enforce('closure', 'Fixed leak.', '', 'mts')) >= 10);
 assert.ok(/^WORQ MTS request to/.test(enforce('worq', 'Please fix it', 'repair door', 'mts')));
@@ -20,7 +20,7 @@ assert.ok(w.preventive && w.contactFM);
 assert.strictEqual(w.woNumber, 'BM08340216');
 assert.strictEqual(templateClosure('', ocr), 'Completed quarterly preventive maintenance on the ceiling heater. Contacted Facility Manager and gained access as required. Inspected unit, cleaned housing and element, checked thermostat, fan operation and electrical connections. Equipment was inspected and confirmed operating within acceptable standards. Photos attached. All work order tasks completed.');
 assert.ok(countWords(templateClosure('replaced capacitor', '')) >= 10);
-assert.strictEqual(fallback('worq', '', 'mts', ocr), 'WORQ MTS request to repair ceiling heater');
+assert.strictEqual(fallback('worq', '', 'mts', ocr), 'WORQ MTS request to investigate and repair ceiling heater');
 const roof = templateClosure('', 'Work Description Repair loose shingles on roof Assigned to');
 assert.ok(/shingles/i.test(roof) && /sealed/.test(roof));
 assert.ok(/compressor/i.test(templateClosure('repair compressor', '')));
@@ -36,4 +36,9 @@ assert.strictEqual(fallback('worq', 'sink clogged kitchen', 'mts'), 'WORQ MTS re
 assert.ok(/drain snake/.test(fallback('closure', 'sink clogged kitchen', 'mts')));
 assert.notStrictEqual(fallback('closure', 'sink clogged kitchen', 'mts', '', 0), fallback('closure', 'sink clogged kitchen', 'mts', '', 1));
 assert.ok(!/source of the leak/i.test(fallback('closure', 'sink clogged kitchen', 'mts')));
+assert.strictEqual(fallback('worq', 'excessive heat in the IT Room', 'mts'), 'WORQ MTS request to investigate and repair issues with excessive heat in the IT Room');
+assert.ok(fallback('worq', 'exterior wall pack lights not working', 'mts').startsWith('WORQ MTS request to investigate and repair exterior wall pack lights that are not working. This is a 2 man job.'));
+assert.ok(/This is a 3 man job\. Needs a lift\.$/.test(fallback('worq', 'sink clogged kitchen', 'mts', '', 0, { crew: '3', notes: 'needs a lift' })));
+assert.ok(/replaced 3 lamps/i.test(fallback('closure', 'light out in lobby', 'mts', '', 0, { notes: 'replaced 3 lamps' })));
+assert.ok(/2 man crew/.test(fallback('closure', 'light out in lobby', 'mts', '', 0, { crew: '2' })));
 console.log('ok');
