@@ -27,8 +27,9 @@ function readBody(req, limit = 25 * 1024 * 1024) {
 
 http.createServer(async (req, res) => {
   try {
-    if (req.method === 'GET' && req.url === '/api/config') return send(res, 200, { email: WORQ_EMAIL, ai: !!API_KEY });
-    if (req.method === 'POST' && req.url === '/api/generate') {
+    const pathname = req.url.split('?')[0];
+    if (req.method === 'GET' && pathname === '/api/config') return send(res, 200, { email: WORQ_EMAIL, ai: !!API_KEY });
+    if (req.method === 'POST' && pathname === '/api/generate') {
       const body = JSON.parse(await readBody(req));
       if (!['closure', 'worq'].includes(body.mode)) return send(res, 400, { error: 'Invalid mode' });
       if (!body.description?.trim() && !body.images?.length && !body.ocrText?.trim()) return send(res, 400, { error: 'Add a description or screenshot' });
@@ -40,7 +41,7 @@ http.createServer(async (req, res) => {
       }
     }
     if (req.method === 'GET') {
-      const file = path.join(PUB, req.url === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]));
+      const file = path.join(PUB, pathname === '/' ? 'index.html' : decodeURIComponent(pathname));
       if (file.startsWith(PUB + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile()) {
         return send(res, 200, fs.readFileSync(file), TYPES[path.extname(file)] || 'application/octet-stream');
       }
