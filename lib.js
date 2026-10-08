@@ -366,6 +366,8 @@ function composeWorq(b, ai = null) {
 // Entry point for the API: checks what is missing, then builds the WORQ email or closing comment.
 async function handle(body, apiKey, model) {
   const mode = body.mode === 'worq' ? 'worq' : 'closure';
+  // A closing comment is only a description of what was addressed and repaired: no manager, address, NTE, priority, crew or access.
+  if (mode === 'closure') body = { ...body, fm: '', address: '', nte: '', priority: '', crew: '', access: '', vendorName: '', vendor: 'mts' };
   const answers = body.answers || {};
   const qs = questionsFor(mode, body);
   const missing = [];

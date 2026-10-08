@@ -76,7 +76,10 @@ assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { coun
   const r = await handle({ mode: 'worq', description: 'clogged sink in the kitchen', ...base, vendor: 'vendor', vendorName: 'ABC Plumbing', priority: 'urgent' }, '', '');
   assert.ok(/• Priority \(Normal, Urgent\): Urgent/.test(r.text) && /• Vendor: ABC Plumbing$/.test(r.text), r.text);
   const c = await handle({ mode: 'closure', description: 'fix wall', answers: { what: 'Hole in the wall', where: 'Lobby' }, fm: 'Dave Fleming' }, '', '');
-  assert.ok(!c.blocked && /hole/i.test(c.text) && /installed new drywall/.test(c.text) && /Work area: lobby/.test(c.text) && /Dave Fleming/.test(c.text) && c.text.split(/\s+/).length >= 10, c.text);
+  assert.ok(!c.blocked && /hole/i.test(c.text) && /installed new drywall/.test(c.text) && /Work area: lobby/.test(c.text) && c.text.split(/\s+/).length >= 10, c.text);
+  // a closing comment is just a description: manager, address, NTE, crew, access and priority are never added
+  const noExtras = await handle({ mode: 'closure', description: 'clogged sink in the kitchen', fm: 'Dave Fleming', address: 'BMO Pilsen Branch, 1400 W 18th St, Chicago, IL 60608', nte: '$500', priority: 'urgent', crew: '2', access: 'lift', vendor: 'vendor', vendorName: 'ABC' }, '', '');
+  assert.ok(!noExtras.blocked && !/Dave Fleming|Facility Manager|Pilsen|1400 W 18th|\$500|urgent|2 man|lift|ABC|NTE|Vendor/i.test(noExtras.text), noExtras.text);
   // 3) WORQ requires facility manager, address and NTE
   const m = await handle({ mode: 'worq', description: 'clogged sink in the kitchen', vendor: 'mts' }, '', '');
   assert.deepStrictEqual(m.missing, ['fm', 'address', 'nte']);

@@ -75,6 +75,7 @@
         <input id="vendorName" type="text" placeholder="e.g. ABC Roofing" autocomplete="off">
       </div>
     </div>
+    <div class="wqonly" id="addrBlock">
     <label for="addr">BMO branch <span class="req wq">(required for WORQ)</span></label>
     <div style="position:relative">
       <input id="addr" type="text" autocomplete="off" placeholder="Search by branch name, street, city or ZIP…">
@@ -87,6 +88,7 @@
     </div>
     <div class="meta" style="margin-top:4px">Every BMO branch address is built in. Search above or pick a state and branch (<a href="bmo-branches.csv" download>download the list</a>).</div>
     <div class="meta" id="addrNote" style="margin-bottom:12px"></div>
+    </div>
     <label>Pick it from the menus</label>
     <div class="grid">
       <select id="mCat" aria-label="Category"><option value="">Category…</option></select>
@@ -96,8 +98,10 @@
     </div>
     <label for="desc" id="descLabel">What repair was done?</label>
     <textarea id="desc" placeholder="e.g. replaced bad capacitor on compressor"></textarea>
-    <div style="margin-top:12px"><label for="fm">Facility Manager <span class="req wq">(required for WORQ)</span></label>
+    <div class="wqonly" style="margin-top:12px">
+    <div><label for="fm">Facility Manager <span class="req wq">(required for WORQ)</span></label>
       <select id="fm"><option value="">Not specified</option></select></div>
+    </div>
     <div style="margin-top:12px" id="prioWrap"><label for="priority">Priority (Normal, Urgent)</label>
       <select id="priority"><option value="">Normal</option><option value="urgent">Urgent</option></select></div>
     <div style="margin-top:12px" id="nteWrap"><label for="nteSel">NTE (not-to-exceed amount) <span class="req">(required)</span></label>
@@ -105,7 +109,7 @@
       <input id="nte" type="text" inputmode="decimal" placeholder="Enter amount, e.g. $3,500" autocomplete="off" hidden style="margin-top:8px"></div>
     <div style="margin-top:12px"><label for="notes">Extra details (optional)</label>
       <textarea id="notes" style="min-height:60px" placeholder="e.g. replaced 3 lamps and a photocell; needs a lift"></textarea></div>
-    <details id="more" style="margin-top:8px"><summary>More options (crew size, access)</summary>
+    <details id="more" class="wqonly" style="margin-top:8px"><summary>More options (crew size, access)</summary>
       <div class="grid" style="margin-top:8px">
         <div><label for="crew">Crew size</label><select id="crew"><option value="">Not specified</option><option value="1">1 man job</option><option value="2">2 man job</option><option value="3">3 man job</option></select></div>
         <div><label for="access">Access needed</label><select id="access"><option value="">None</option><option value="ladder">Ladder</option><option value="lift">Lift</option><option value="roof">Roof access</option><option value="afterhours">After hours</option><option value="lockout">Lockout/tagout</option><option value="fm">Contact Facility Manager</option></select></div>
@@ -208,6 +212,7 @@ function setMode(m) {
   $('notes').placeholder = m === 'worq' ? 'e.g. needs a lift; after hours only' : 'e.g. replaced 3 lamps and a photocell';
   $('go').textContent = m === 'worq' ? 'Create WORQ request' : 'Create closing comment';
   $('photoTitle').textContent = m === 'worq' ? 'Photos for this WORQ request' : 'Photos for this closing comment';
+  document.querySelectorAll('.wqonly').forEach((e) => (e.hidden = m !== 'worq'));
   $('nteWrap').hidden = $('prioWrap').hidden = m !== 'worq'; document.querySelectorAll('.wq').forEach((e) => (e.hidden = m !== 'worq'));
   load();
 }
@@ -468,7 +473,7 @@ async function run() {
   $('go').disabled = $('regen').disabled = true; const label = $('go').textContent; $('go').textContent = 'Working…';
   try {
     const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: m, vendor: st.vendor, description: st.desc, images: config.ai ? st.images : [], ocrText: st.texts.join('\n\n'),
+      body: JSON.stringify({ mode: m, vendor: m === 'worq' ? st.vendor : 'mts', description: st.desc, images: config.ai ? st.images : [], ocrText: st.texts.join('\n\n'),
         variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, nte: st.nte.trim(), vendorName: st.vendorName.trim(), answers: st.answers, address: st.siteName ? `${st.siteName}, ${st.addr}` : st.addr, notes: st.notes.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
