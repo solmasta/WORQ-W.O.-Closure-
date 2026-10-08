@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "description": "Generate work order closure comments and WORQ request lines from screenshots and short descriptions",
-  "scripts": { "start": "node server.js", "test": "node test.js" },
+  "scripts": { "start": "node server.js", "test": "node --no-warnings test.js" },
   "engines": { "node": ">=18" }
 }

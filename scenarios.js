@@ -2,28 +2,28 @@
 // Problem-aware wording: matches "object + symptom" in any word order (e.g. "sink clogged kitchen")
 // and returns the verb, subject and the steps a technician would realistically perform.
 
-const LOCATIONS = /\b(exterior|interior|outdoor|indoor|kitchen|bathroom|restroom|break ?room|lunch ?room|lobby|office|hallway|vault|teller (?:line|area|station)|server room|it room|idf|mdf|data closet|storage room|stock room|conference room|basement|exterior|parking lot|loading dock|dock|mens|men's|womens|women's|roof|entrance|stairwell|atm)\b/i;
+const LOCATIONS = /\b(exterior|interior|outdoor|indoor|rooftop|kitchen|bathroom|restroom|break ?room|lunch ?room|lobby|office|hallway|vault|teller (?:line|area|station)|server room|it room|idf|mdf|data closet|storage room|stock room|conference room|mechanical room|electrical room|boiler room|janitor'?s? closet|closet|waiting area|drive-?thru|teller area|basement|exterior|parking lot|loading dock|dock|mens|men's|womens|women's|roof|entrance|stairwell|atm)\b/i;
 const PREP_TAIL = /\b(in|at|by|near|on|inside|outside|behind|under|above)\s+(?:the\s+)?([\w'/ -]+)$/i;
 
 const ADJ = [
   [/un?clog|clog|plug|backed|stopped|blocked|block/i, 'clogged'],
   [/leak|drip|seep/i, 'leaking'],
   [/crack/i, 'cracked'], [/broke|broken|busted/i, 'broken'], [/loose|wobbl/i, 'loose'],
-  [/\brunning\b|\brun\b/i, 'running'], [/stuck|jam/i, 'jammed'], [/stain/i, 'water-stained'], [/missing/i, 'missing'],
+  [/\brunning\b|\brun\b/i, 'running'], [/stuck|jam/i, 'jammed'], [/stain/i, 'stained'], [/noisy|loud|squeal|rattl|vibrat/i, 'noisy'], [/missing/i, 'missing'],
   [/burn|burnt|\bout\b/i, 'burned-out'], [/dead/i, 'dead'], [/flicker/i, 'flickering'], [/\bdim\b/i, 'dim'], [/peel/i, 'peeling'], [/damag/i, 'damaged'],
 ];
 
 const S = (o) => o;
-const SCENARIOS = [
-  S({ id: 'toilet-clog', obj: /toilet|commode|urinal/i, sym: /clog|plug|backed|stopped|block|overflow|won'?t flush/i, imp: 'clear', past: 'cleared',
+const BASE = [
+  S({ id: 'toilet-clog', obj: /toilet|commode|urinal/i, sym: /clog|plug|back(ed|ing)|stopped|block|overflow|won'?t flush/i, imp: 'clear', past: 'cleared',
     steps: 'Removed the blockage with a plunger and closet auger, flushed repeatedly to confirm full flow, and checked the base and supply line for leaks.' }),
   S({ id: 'toilet-run', obj: /toilet|commode/i, sym: /run|constant|weak|hiss|fill|flush|handle/i, imp: 'repair', past: 'repaired',
     steps: 'Inspected the tank, adjusted and replaced the worn flapper and fill valve as needed, and confirmed the toilet flushes fully and shuts off properly.' }),
-  S({ id: 'floor-drain', obj: /floor drain/i, sym: /clog|plug|backed|slow|block|overflow|smell|odor/i, imp: 'clear', past: 'cleared',
+  S({ id: 'floor-drain', obj: /floor drain/i, sym: /clog|plug|back(ed|ing)|slow|block|overflow|smell|odor/i, imp: 'clear', past: 'cleared',
     steps: 'Removed the cover, cleared the blockage with a drain machine, flushed the line with water and confirmed proper drainage.' }),
   S({ id: 'disposal', obj: /disposal/i, sym: /jam|stuck|hum|clog|not working|broke|leak/i, imp: 'repair', past: 'repaired',
     steps: 'Freed the jammed flywheel, cleared the debris, reset the unit and ran water to confirm it operates and drains properly.' }),
-  S({ id: 'sink-clog', obj: /sink|drain|basin|lavatory/i, sym: /clog|plug|backed|slow|block|stopped|overflow|won'?t drain/i, imp: 'clear', past: 'cleared',
+  S({ id: 'sink-clog', obj: /sink|drain|basin|lavatory/i, sym: /clog|plug|back(ed|ing)|slow|block|stopped|overflow|won'?t drain/i, imp: 'clear', past: 'cleared',
     steps: 'Removed the blockage with a drain snake, flushed the line with hot water, and verified proper drainage with no leaks at the trap or connections.' }),
   S({ id: 'faucet-leak', obj: /faucet|tap|spigot|sprayer|handle/i, sym: /leak|drip|seep|run/i, imp: 'repair', past: 'repaired',
     steps: 'Shut off the water supply, replaced the worn washer or cartridge, tightened the connections, and ran the water to confirm the leak is stopped.' }),
@@ -45,17 +45,17 @@ const SCENARIOS = [
     steps: 'Shut off power, tested the circuit, replaced the faulty device, restored power and confirmed correct operation.' }),
   S({ id: 'lock', obj: /lock|key|deadbolt|latch|cylinder|handle|knob|padlock/i, sym: /broke|jam|stuck|won'?t|not work|loose|stiff|spin|fall|lost|crack|\bfix\b|\brepair\b/i, imp: 'repair', past: 'repaired',
     steps: 'Disassembled the lock, cleaned and lubricated the mechanism, replaced the worn components as needed, and tested with the key several times for smooth operation.' }),
-  S({ id: 'door', obj: /door|gate/i, sym: /stick|close|latch|rub|sag|loose|hinge|drag|slam|align|hold|won'?t|not/i, imp: 'repair', past: 'repaired',
+  S({ id: 'door', obj: /door|gate/i, sym: /stick|close|latch|rub|sag|loose|hinge|drag|slam|align|hold|won'?t|not|damag|broke|crack|split|dent|bent|kick|warp/i, imp: 'repair', past: 'repaired',
     steps: 'Adjusted and tightened the hinges, aligned the strike plate and latch, lubricated the moving parts and confirmed the door opens, closes and latches smoothly.' }),
   S({ id: 'excess-heat', obj: /heat|hot|temperature|warm|overheat/i, sym: /excessive|too hot|too warm|overheat|extreme|high temp|getting hot|very hot|hot in|warm in|running hot/i, imp: 'repair', past: 'repaired', fixedSubject: 'excessive heat',
     steps: 'Checked the cooling equipment, airflow, thermostat settings and ventilation, corrected the fault found, and monitored the space until temperatures returned to the normal range.' }),
-  S({ id: 'heat', obj: /heat|furnace|boiler|unit heater|space heater|hvac|rtu|thermostat/i, sym: /no heat|not heat|won'?t heat|cold|not work|broke|won'?t|fail|short cycl|noisy|loud/i, imp: 'repair', past: 'repaired',
+  S({ id: 'heat', obj: /heat|furnace|boiler|unit heater|space heater|hvac|rtu|thermostat/i, sym: /no heat|not heat|won'?t heat|cold|not work|broke|won'?t|fail|short cycl|nois|loud/i, imp: 'repair', past: 'repaired',
     steps: 'Diagnosed the loss of heat, checked the thermostat, power supply and heating components, repaired the fault, and confirmed the unit heats to the setpoint.' }),
-  S({ id: 'cooling', obj: /\bac\b|a\/c|air condition|cooling|hvac|rtu|condenser|split|compressor|chiller|thermostat/i, sym: /no cool|not cool|warm|hot|won'?t|not work|broke|ice|freez|fail|noisy|loud|leak/i, imp: 'repair', past: 'repaired',
+  S({ id: 'cooling', obj: /\bac\b|a\/c|air condition|cooling|hvac|rtu|condenser|split|compressor|chiller|thermostat/i, sym: /no cool|not cool|warm|hot|won'?t|not work|broke|ice|freez|fail|nois|loud|leak/i, imp: 'repair', past: 'repaired',
     steps: 'Diagnosed the cooling issue, checked the thermostat, airflow, condensate drain and electrical components, repaired the fault, and confirmed the unit cools properly.' }),
   S({ id: 'hotwater', obj: /water heater|hot water/i, sym: null, imp: 'repair', past: 'repaired',
     steps: 'Diagnosed the loss of hot water, checked the heating element or burner, thermostat and relief valve, repaired the fault, and confirmed hot water at the fixtures.' }),
-  S({ id: 'fan', obj: /exhaust|fan|vent|blower/i, sym: /noisy|loud|not work|broke|won'?t|squeal|rattl|dirty|slow|stuck/i, imp: 'repair', past: 'repaired',
+  S({ id: 'fan', obj: /exhaust|fan|vent|blower/i, sym: /nois|loud|not work|broke|won'?t|squeal|rattl|dirty|slow|stuck/i, imp: 'repair', past: 'repaired',
     steps: 'Cleaned the fan and housing, tightened or replaced the worn components, and confirmed quiet, proper airflow.' }),
   S({ id: 'hole', obj: /hole|drywall|sheetrock|wall|dent/i, sym: /hole|damag|crack|dent|broke|patch|gouge|punch/i, imp: 'patch', past: 'patched',
     steps: 'Cut out the damaged section, installed new drywall, taped, mudded and sanded the area smooth, then primed and painted to match.' }),
@@ -85,8 +85,11 @@ const SCENARIOS = [
 
 const OBJ_NAME = { heat: 'heating system', furnace: 'furnace', ac: 'AC unit', 'a/c': 'AC unit', cooling: 'cooling system', hvac: 'HVAC unit', rtu: 'rooftop unit',
   'hot water': 'water heater', condenser: 'condenser', compressor: 'compressor', thermostat: 'thermostat' };
-const PREFIX_PLACES = /^(exterior|interior|outdoor|indoor|kitchen|bathroom|restroom|break ?room|lunch ?room|mens|men's|womens|women's|office)$/i;
+const PREFIX_PLACES = /^(exterior|interior|outdoor|indoor|rooftop|kitchen|bathroom|restroom|break ?room|lunch ?room|mens|men's|womens|women's|office)$/i;
 const wordAround = (t, m) => { const re = /[\w'/-]+/g; let w; while ((w = re.exec(t))) if (m.index >= w.index && m.index < w.index + w[0].length) return w[0]; return m[0]; };
+
+const { TRADES } = require('./trades');
+const SCENARIOS = [...TRADES, ...BASE];   // specific trade problems first, then the earlier general ones
 
 const EXTRA = {
   'toilet-clog': { found: 'Investigation found the drain line blocked, preventing proper flushing.' },
@@ -167,47 +170,72 @@ for (const sc of SCENARIOS) {
 const clean = (s) => s.replace(/[.\s]+$/, '').replace(/\s+/g, ' ').trim();
 
 // text -> {scenario, subject} or null
+const FILLER = /^(please|pls|fix|repair|replace|the|a|an|my|is|are|has|have|not|working|work|need|needs|to|and|of|problem|issue|request|worq|mts|vendor|third|party|needed|clogged|clog|un?clog\w*|leak\w*|drip\w*|broke\w*|crack\w*|stuck|jam\w*|out|no|won'?t|burn\w*|dead|dim|flicker\w*|stain\w*|peel\w*|cool\w*|heat\w*|warm|hot|run\w*|noisy|loud|rekey|re-key|treat|remove|clear|clean|patch|install|trim|inspect|service|restripe|please)$/i;
+const PREPS = /^(in|on|at|by|near|inside|outside|behind|under|above|of|the)$/i;
+const VERBISH = /^(paint|repaint|rekey|re-key|treat|clear|clean|trim|remove|patch|install|inspect|service|restripe|pressure wash)$/i;
+
+// text -> {scenario, subject, core, suffix, ...} or null
 function matchScenario(text) {
   const t = clean(text || '');
   if (!t) return null;
-  const sc = SCENARIOS.find((x) => x.obj.test(t) && (!x.sym || x.sym.test(t)));
+  const sc = SCENARIOS.find((x) => x.obj.test(t) && (!x.sym || x.sym.test(t)) && !(x.no && x.no.test(t)));
   if (!sc) return null;
 
-  // Split off a trailing "in/at/by ..." place, then build "<problem> <place> <object>".
-  let body = t, suffix = '';
+  // A trailing "in/at/by ..." is a place, unless it names the item itself ("hole in the wall").
+  let body = t, suffix = '', keepPreps = false;
   const pm = PREP_TAIL.exec(t);
-  if (pm && pm.index > 0) { suffix = `${pm[1].toLowerCase()} the ${clean(pm[2]).replace(/^the\s+/i, '')}`; body = t.slice(0, pm.index).trim(); }
+  if (pm && pm.index > 0) {
+    const tail = clean(pm[2]);
+    if (sc.obj.test(tail) && !hasLocation(tail)) keepPreps = true;
+    else { suffix = `${pm[1].toLowerCase()} the ${tail.replace(/^the\s+/i, '')}`; body = t.slice(0, pm.index).trim(); }
+  }
+  // A loose place word ("kitchen", "lobby"), as long as the item is still there without it.
   const loc = LOCATIONS.exec(body);
   let place = '';
   if (loc && !suffix) {
     const w = loc[0].toLowerCase();
-    body = clean(body.replace(loc[0], ' '));
-    if (PREFIX_PLACES.test(w)) place = w; else suffix = `in the ${w}`;
+    const without = clean(body.replace(loc[0], ' '));
+    if (sc.obj.test(without)) { body = without; if (PREFIX_PLACES.test(w)) place = w; else suffix = `in the ${w}`; }
   }
 
-  const om = sc.obj.exec(body) || sc.obj.exec(t);
-  let objWord = om ? (/\s/.test(om[0]) ? om[0] : wordAround(sc.obj.exec(body) ? body : t, om)).toLowerCase() : '';
-  const rawObj = objWord;
-  objWord = OBJ_NAME[rawObj] || objWord;
+  // The item itself, kept where the technician put it among the other words.
+  let rawObj = '', work = body;
+  const mb = sc.obj.exec(body);
+  if (mb) {
+    let s0 = mb.index, e0 = mb.index + mb[0].length;
+    if (!/\s/.test(mb[0])) { while (s0 > 0 && /[\w'/-]/.test(body[s0 - 1])) s0--; while (e0 < body.length && /[\w'/-]/.test(body[e0])) e0++; }
+    rawObj = body.slice(s0, e0).toLowerCase();
+    work = `${body.slice(0, s0)} § ${body.slice(e0)}`;
+  }
+  let objWord = mb ? (OBJ_NAME[rawObj] || rawObj) : '';
+  if (!mb) { const m2 = sc.obj.exec(t); if (m2) objWord = OBJ_NAME[m2[0].toLowerCase()] || wordAround(t, m2).toLowerCase(); }
+
   let adj = '';
   if (sc.sym) {
     const sw = [...t.matchAll(new RegExp(sc.sym.source, 'gi'))].map((x) => x[0]).join(' ');
     const hit = ADJ.find(([re, label]) => label && re.test(sw));
     adj = hit ? hit[1] || '' : '';
+    if (adj === 'stained' && /water|leak/i.test(t)) adj = 'water-stained';
   }
-  // keep any other descriptive words the user typed (e.g. "loose", "kitchen", "ceiling")
-  const rest = clean(body.replace(new RegExp(`\\b${rawObj.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'), ' ')
-    .replace(/\b(please|pls|fix|repair|replace|the|a|an|my|is|are|has|have|not|working|work|need|needs|to|and|of|problem|issue|request|worq|mts|vendor|third|party|needed|clogged|clog|un?clog\w*|leak\w*|drip\w*|broke\w*|crack\w*|stuck|jam\w*|out|no|won'?t|flush\w*|burn\w*|dead|dim|flicker\w*|stain\w*|peel\w*|cool\w*|heat\w*|warm|hot|run\w*)\b/gi, ' '));
-  if (objWord === 'paint' && rest) objWord = '';
-  const rest2 = adj === 'water-stained' ? clean(rest.replace(/\bwater\b/gi, ' ')) : rest;
-  const parts = sc.fixedSubject ? [sc.fixedSubject] : [adj, place, rest2, objWord].filter(Boolean);
+  work = work.replace(/won'?t flush|not flush(ing)?|flushing|doesn'?t flush|won'?t drain/gi, ' ');
+  let tokens = work.split(/\s+/).filter(Boolean).filter((w) => w === '§' || (keepPreps && /^the$/i.test(w)) || !FILLER.test(w.replace(/[.,]/g, '')));
+  if (adj === 'water-stained') tokens = tokens.filter((w) => !/^water$/i.test(w));
+  if (!keepPreps) tokens = tokens.filter((w) => w === '§' || !PREPS.test(w));
+  while (tokens.length && PREPS.test(tokens[0])) tokens.shift();          // dangling "in the ..." at the start
+  while (tokens.length && PREPS.test(tokens[tokens.length - 1])) tokens.pop();
+  if (VERBISH.test(rawObj || objWord) && tokens.filter((w) => w !== '§').length) objWord = '';   // "rekey back door" -> "back door"
+  if (!mb) tokens.push('§');
+  const body2 = tokens.map((w) => (w === '§' ? objWord : w)).filter(Boolean);
+  const parts = sc.fixedSubject ? [sc.fixedSubject] : [adj, place, ...body2].filter(Boolean);
   const seen = new Set();
-  const core = parts.join(' ').split(' ').filter((w) => (seen.has(w.toLowerCase()) ? false : seen.add(w.toLowerCase()))).join(' ');
+  const core = parts.join(' ').split(' ').filter((w) => (w.length <= 3 ? true : seen.has(w.toLowerCase()) ? false : seen.add(w.toLowerCase()))).join(' ');
   const subject = core + (suffix ? ` ${suffix}` : '');
   const broken = /not work|not heat|not cool|no heat|no cool|won'?t work|inoperab|\bout\b|\bdead\b|burn|no power|stopped working/i.test(t);
-  return { scenario: sc, subject: clean(subject), core: clean(core), suffix, place, plural: /s$/i.test(objWord), broken };
+  return { scenario: sc, subject: clean(subject), core: clean(core), suffix, place, plural: /s$/i.test(objWord || rawObj), broken };
 }
 
 const hasLocation = (text) => LOCATIONS.test(text || '');
 
-module.exports = { matchScenario, SCENARIOS, hasLocation };
+const locationWord = (text) => { const m = LOCATIONS.exec(text || ''); return m ? m[0] : ''; };
+
+module.exports = { matchScenario, SCENARIOS, hasLocation, locationWord };

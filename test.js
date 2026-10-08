@@ -87,7 +87,53 @@ assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { coun
   assert.ok(e2.request.startsWith('WORQ MTS request to investigate and repair issues with excessive heat in the IT Room.'));
   assert.ok(e1.body.split('\n').slice(0, 1)[0] === 'WORQ' && e1.body.split('\n').length === 7);
   // 5) an unrecognized item needs why + more detail before anything is produced
-  const u = await handle({ mode: 'worq', description: 'replace vault gasket', ...base, answers: {} }, '', '');
+  const u = await handle({ mode: 'worq', description: 'replace vault widget', ...base, answers: {} }, '', '');
   assert.ok(u.blocked && u.required.some((q) => q.id === 'more') && u.required.some((q) => q.id === 'why'));
-  console.log('ok');
+  // 6) every drop-down choice must produce a specific, described result in BOTH outputs (no generic answers)
+  const { CATALOG, compose } = await import('./public/catalog.js');
+  const wordsOf = (x) => x.trim().split(/\s+/).length;
+  let combos = 0;
+  for (const [cat, items] of Object.entries(CATALOG)) {
+    for (const [item, probs] of Object.entries(items)) {
+      for (const prob of probs) {
+        combos += 1;
+        const desc = compose(item, prob, 'Lobby');
+        const wq = await handle({ mode: 'worq', description: desc, ...base }, '', '');
+        assert.ok(!wq.blocked, `WORQ blocked for menu choice: ${cat} > ${item} > ${prob} ("${desc}")`);
+        assert.ok(wordsOf(wq.text.split('• WO Description: ')[1].split('\n')[0]) >= 15, `WORQ too short: ${desc}`);
+        const cl = await handle({ mode: 'closure', description: desc, fm: 'Dave Fleming' }, '', '');
+        assert.ok(!cl.blocked, `closing blocked for menu choice: ${cat} > ${item} > ${prob}`);
+        assert.ok(wordsOf(cl.text) >= 20 && !/Diagnosed the issue with/.test(cl.text), `closing too generic: ${desc} -> ${cl.text}`);
+      }
+    }
+  }
+  // every location in the menu must be understood by the server, so choosing it never triggers a "where is it?" question
+  const { LOCATIONS } = await import('./public/catalog.js');
+  for (const loc of LOCATIONS) {
+    const r = await handle({ mode: 'worq', description: compose('Sink', 'Clogged', loc), ...base }, '', '');
+    assert.ok(!r.blocked, `location "${loc}" from the menu was not recognized: ${JSON.stringify(r.required)}`);
+  }
+  // 7) messy phrases the way technicians really type them
+  const { matchScenario } = require('./scenarios');
+  const cases = {
+    'clogged shower drain': 'shower-clog', 'toilet running': 'toilet-run', 'urinal not flushing': 'flush-valve', 'leaking under sink': 'sink-leak',
+    'p trap leaking': 'ptrap-leak', 'no hot water': 'hotwater', 'water heater leaking': 'water-heater-leak', 'frozen pipe': 'frozen-pipe', 'sewer backup': 'sewer',
+    'sump pump not working': 'sump', 'low water pressure': 'low-pressure', 'exit sign out': 'emergency-light', 'gfci tripped': 'gfci', 'breaker keeps tripping': 'breaker',
+    'lost power in vault': 'power-loss', 'ballast humming': 'ballast', 'generator needs service': 'backup-power', 'fire alarm trouble': 'fire-alarm',
+    'dirty filters': 'filter-change', 'belt squealing': 'belt', 'condensate line clogged': 'condensate', 'thermostat dead': 'thermostat', 'boiler not heating': 'boiler',
+    'duct leaking air': 'duct', 'rtu making noise': 'rtu-noise', 'it room ac not working': 'mini-split', 'paint the lobby wall': 'paint-job', 'peeling paint': 'paint-peel',
+    'crack in drywall': 'wall-crack', 'water stained wall': 'wall-water', 'loose baseboard': 'baseboard', 'caulk around sink failed': 'caulk', 'cracked grout': 'grout',
+    'stained carpet': 'carpet-clean', 'torn carpet': 'carpet-repair', 'graffiti on wall': 'graffiti', 'sagging ceiling grid': 'ceiling-grid', 'cracked brick': 'masonry',
+    'door closer not working': 'door-closer', 'panic bar stuck': 'panic-bar', 'ada door button not working': 'auto-door', 'rekey the back door': 'rekey',
+    'overhead door not working': 'overhead-door', 'cracked storefront glass': 'glass', 'card reader not working': 'access-control', 'camera not working': 'camera',
+    'roof drain clogged': 'roof-drain', 'flashing damaged': 'flashing', 'light pole leaning': 'light-pole', 'parking stripes faded': 'striping',
+    'cracked asphalt': 'asphalt-crack', 'damaged bollard': 'curb-bollard', 'storm drain clogged': 'catch-basin', 'trees overgrown': 'landscape', 'icy walkway': 'snow-ice',
+    'mice in the break room': 'pest', 'sprinkler head leaking': 'sprinkler', 'fire extinguisher inspection': 'extinguisher', 'counter top peeling': 'countertop',
+    'broken chair': 'furniture-fix', 'standing water in lobby': 'water-extract',
+  };
+  for (const [phrase, id] of Object.entries(cases)) {
+    const m = matchScenario(phrase);
+    assert.ok(m && m.scenario.id === id, `"${phrase}" should be ${id}, got ${m ? m.scenario.id : 'nothing'}`);
+  }
+  console.log(`ok (${combos} menu choices x 2 outputs, ${Object.keys(cases).length} typed phrases)`);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -1,5 +1,5 @@
 'use strict';
-const { matchScenario, hasLocation } = require('./scenarios');
+const { matchScenario, hasLocation, locationWord } = require('./scenarios');
 const Q = require('./questions');
 
 const MIN_WORDS = 10;
@@ -338,7 +338,7 @@ function composeWorq(b, ai = null) {
     core = sc.issues ? `investigate and repair issues with ${sm.subject}` : `${sc.invest ? 'investigate and ' : ''}${verb} ${sm.core}${cond}${sm.suffix ? ' ' + sm.suffix : ''}`;
     crew = nCrew || sc.crew || 0;
     accessTxt = accessTxt || sc.access || '';
-    area = answers.where && answers.where !== Q.SKIP ? answers.where : sm.place || (hasLocation(sm.suffix) ? sm.suffix.replace(/^\w+\s+the\s+/i, '') : '');
+    area = answers.where && answers.where !== Q.SKIP ? answers.where : locationWord(text) || sm.place || '';
     descr = [sc.scope, sc.why, ...ap.worq].join(' ');
   } else {
     const t = extractTask(eff, b.ocrText);
