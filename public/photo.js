@@ -39,15 +39,28 @@ export const PROBLEMS = [
   ['a scene or object unrelated to building repairs, such as a landscape, rocks, a person, an animal or an electronic gadget', null],
 ];
 
-let clf;
+// The model runs in its own Web Worker so the page never freezes while a photo is analyzed.
+let worker, nextId = 1;
+const pending = new Map();
+function getWorker() {
+  if (worker) return worker;
+  worker = new Worker(new URL('./photo-worker.js', import.meta.url), { type: 'module' });
+  worker.onmessage = (e) => {
+    const { id, status, out, error } = e.data;
+    const p = pending.get(id); if (!p) return;
+    if (status) p.onStatus(status === 'loading' ? 'Loading photo recognition (first time only, ~90 MB)…' : 'Looking at the photo…');
+    else { pending.delete(id); error ? p.reject(new Error(error)) : p.resolve(out); }
+  };
+  worker.onerror = (e) => { pending.forEach((p) => p.reject(new Error(e.message || 'worker failed'))); pending.clear(); worker = null; };
+  return worker;
+}
+
 export async function classify(dataUrl, onStatus = () => {}) {
-  if (!clf) {
-    onStatus('Loading photo recognition (first time only, ~90 MB)…');
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/+esm');
-    clf = await pipeline('zero-shot-image-classification', 'Xenova/clip-vit-base-patch32', { dtype: 'q8' });
-  }
-  onStatus('Looking at the photo…');
-  const out = await clf(dataUrl, PROBLEMS.map((p) => p[0]), { hypothesis_template: 'A close-up photo of {}.' });
+  const id = nextId++;
+  const out = await new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject, onStatus });
+    getWorker().postMessage({ id, image: dataUrl, labels: PROBLEMS.map((p) => p[0]) });
+  });
   const task = new Map(PROBLEMS);
   const ranked = out.sort((a, b) => b.score - a.score);
   const guesses = ranked.filter((o) => task.get(o.label)).slice(0, 3).map((o) => ({ task: task.get(o.label), score: o.score }));

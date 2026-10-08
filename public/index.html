@@ -69,18 +69,19 @@
     </details>
     <div class="row" style="margin:12px 0 0">
       <button id="camBtn" type="button">📷 Take photo</button>
-      <button id="pickBtn" type="button">🖼️ Upload photo or file</button>
+      <button id="pickBtn" type="button">🖼️ Upload photos or files</button>
     </div>
     <div class="drop" id="drop">or paste / drop screenshots here</div>
     <input type="file" id="camera" accept="image/*" capture="environment" hidden>
     <input type="file" id="file" accept="image/*" multiple hidden>
     <div class="thumbs" id="thumbs"></div>
+    <div class="meta" id="photoCount"></div>
     <div class="meta" id="ocrStatus"></div>
     <div id="guess" hidden>
-      <div class="meta">Looks like the problem is (tap to change):</div>
+      <div class="meta" id="guessTitle">Looks like the problem is (tap to change):</div>
       <div class="row" id="guessChips" style="flex-wrap:wrap"></div>
     </div>
-    <div class="row"><button class="primary" id="go">Generate</button></div>
+    <div class="row"><button class="primary" id="go">Create closing comment</button><button id="clear" type="button" style="flex:0 0 auto">Clear</button></div>
   </div>
 
   <div class="card" id="result" hidden>
@@ -95,26 +96,73 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-let variant = 0, mode = 'closure', vendor = 'mts', images = [], texts = [], config = { email: '' };
+const MAX_PHOTOS = 6;
+let config = { email: '' };
 fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
 
+// Closing Comment and WORQ are completely separate: each keeps its own photos, text, menus and result.
+const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', crew: '', access: '', priority: '',
+  mCat: '', mItem: '', mProb: '', mLoc: '', vendor: 'mts', variant: 0, guessed: '', result: null, status: '' });
+const state = { closure: fresh(), worq: fresh() };
+let mode = 'closure';
+const S = () => state[mode];
+
+// ---- menus ----
+let catalog;
+const fill = (sel, items, label) => { sel.innerHTML = `<option value="">${label}</option>` + items.map((x) => `<option>${x}</option>`).join(''); };
+function setMenus(st) {
+  if (!catalog) return;
+  fill($('mCat'), Object.keys(catalog.CATALOG), 'Category…'); $('mCat').value = st.mCat;
+  const items = catalog.CATALOG[st.mCat] || {};
+  fill($('mItem'), Object.keys(items), 'Item…'); $('mItem').disabled = !st.mCat; $('mItem').value = st.mItem;
+  const probs = items[st.mItem] || [];
+  fill($('mProb'), probs, 'Problem…'); $('mProb').disabled = !st.mItem; $('mProb').value = st.mProb;
+  fill($('mLoc'), catalog.LOCATIONS, 'Location…'); $('mLoc').value = st.mLoc;
+}
+import('./catalog.js').then((m) => { catalog = m; setMenus(S()); }).catch(() => { document.querySelector('.grid').hidden = true; });
+
+// ---- keep the screen and the current tab's state in sync ----
+function save() {
+  const st = S();
+  Object.assign(st, { desc: $('desc').value, notes: $('notes').value, crew: $('crew').value, access: $('access').value, priority: $('priority').value,
+    mCat: $('mCat').value, mItem: $('mItem').value, mProb: $('mProb').value, mLoc: $('mLoc').value });
+}
+function load() {
+  const st = S();
+  $('desc').value = st.desc; $('notes').value = st.notes; $('crew').value = st.crew; $('access').value = st.access; $('priority').value = st.priority;
+  setMenus(st);
+  $('vMts').classList.toggle('on', st.vendor === 'mts'); $('vVendor').classList.toggle('on', st.vendor === 'vendor');
+  $('ocrStatus').textContent = st.status;
+  renderThumbs(); renderGuess();
+  showResult(st.result);
+}
 function setMode(m) {
-  mode = m;
+  save(); mode = m;
   $('tabClosure').classList.toggle('on', m === 'closure');
   $('tabWorq').classList.toggle('on', m === 'worq');
   $('vendorRow').hidden = m !== 'worq';
   $('descLabel').textContent = m === 'worq' ? 'What needs to be repaired?' : 'What repair was done?';
   $('desc').placeholder = m === 'worq' ? 'e.g. exterior wall pack lights not working' : 'e.g. sink clogged kitchen';
   $('notes').placeholder = m === 'worq' ? 'e.g. needs a lift; after hours only' : 'e.g. replaced 3 lamps and a photocell';
-  $('result').hidden = true;
+  $('go').textContent = m === 'worq' ? 'Create WORQ request' : 'Create closing comment';
+  load();
 }
 $('tabClosure').onclick = () => setMode('closure');
 $('tabWorq').onclick = () => setMode('worq');
-function setVendor(v) { vendor = v; $('vMts').classList.toggle('on', v === 'mts'); $('vVendor').classList.toggle('on', v === 'vendor'); }
-$('vMts').onclick = () => setVendor('mts');
-$('vVendor').onclick = () => setVendor('vendor');
+$('vMts').onclick = () => { save(); S().vendor = 'mts'; load(); };
+$('vVendor').onclick = () => { save(); S().vendor = 'vendor'; load(); };
 
-// Free, on-device text reading (Tesseract.js). Nothing is uploaded for this step.
+function buildFromMenus() {
+  if (!catalog || !$('mItem').value) return;
+  $('desc').value = catalog.compose($('mItem').value, $('mProb').value, $('mLoc').value);
+  S().guessed = '';
+}
+$('mCat').onchange = () => { save(); S().mItem = ''; S().mProb = ''; setMenus(S()); };
+$('mItem').onchange = () => { save(); S().mProb = ''; setMenus(S()); buildFromMenus(); };
+$('mProb').onchange = () => { save(); buildFromMenus(); };
+$('mLoc').onchange = () => { save(); buildFromMenus(); };
+
+// ---- photos: reading text (free, on-device) and recognizing the problem ----
 let tessLoad;
 function loadTesseract() {
   return (tessLoad ||= new Promise((res, rej) => {
@@ -124,64 +172,47 @@ function loadTesseract() {
     document.head.appendChild(sc);
   }));
 }
-let lastConf = 0;
-async function ocr(dataUrl) {
-  lastConf = 0;
-  $('ocrStatus').textContent = 'Reading screenshot text…';
+const setStatus = (st, text) => { st.status = text; if (st === S()) $('ocrStatus').textContent = text; };
+
+async function ocr(st, dataUrl) {
+  setStatus(st, 'Reading photo text…');
   try {
     await loadTesseract();
     const { data } = await Tesseract.recognize(dataUrl, 'eng');
-    $('ocrStatus').textContent = 'Screenshot text read ✓';
-    lastConf = data.confidence || 0;
-    return data.text || '';
-  } catch (e) { $('ocrStatus').textContent = 'Could not read screenshot text; using your description only.'; return ''; }
+    return { text: data.text || '', conf: data.confidence || 0 };
+  } catch (e) { return { text: '', conf: 0 }; }
 }
 
-// ---- Menus: Category -> Item -> Problem (+ Location) build the description ----
-let catalog;
-const fill = (sel, items, label) => { sel.innerHTML = `<option value="">${label}</option>` + items.map((x) => `<option>${x}</option>`).join(''); };
-import('./catalog.js').then((m) => {
-  catalog = m;
-  fill($('mCat'), Object.keys(m.CATALOG), 'Category…');
-  fill($('mLoc'), m.LOCATIONS, 'Location…');
-}).catch(() => { document.querySelector('.grid').hidden = true; });
-function buildFromMenus() {
-  if (!catalog || !$('mItem').value) return;
-  $('desc').value = catalog.compose($('mItem').value, $('mProb').value, $('mLoc').value);
-  guessed = '';
+// The best guesses across all of this tab's photos.
+function aggregate(st) {
+  const best = new Map(); let confident = false;
+  st.photoGuess.forEach((pg) => {
+    if (!pg) return;
+    if (pg.confident) confident = true;
+    pg.guesses.forEach((g) => { if (!best.has(g.task) || best.get(g.task) < g.score) best.set(g.task, g.score); });
+  });
+  const top = [...best].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([task, score]) => ({ task, score }));
+  return { top, confident: confident && top.length > 0 };
 }
-$('mCat').onchange = () => {
-  const items = catalog.CATALOG[$('mCat').value] || {};
-  fill($('mItem'), Object.keys(items), 'Item…'); $('mItem').disabled = !$('mCat').value;
-  fill($('mProb'), [], 'Problem…'); $('mProb').disabled = true;
-};
-$('mItem').onchange = () => {
-  const probs = (catalog.CATALOG[$('mCat').value] || {})[$('mItem').value] || [];
-  fill($('mProb'), probs, 'Problem…'); $('mProb').disabled = !$('mItem').value;
-  buildFromMenus();
-};
-$('mProb').onchange = buildFromMenus;
-$('mLoc').onchange = buildFromMenus;
-
-let guessed = ''; // the last value we auto-filled, so we don't overwrite what the user typed
-async function guessProblem(dataUrl) {
-  try {
-    const { classify } = await import('./photo.js');
-    const { guesses: top, confident } = await classify(dataUrl, (m) => ($('ocrStatus').textContent = m));
-    $('ocrStatus').textContent = confident ? 'Photo checked ✓ (a guess, so edit it if it is wrong)' : 'Not sure what the problem is. Tap a suggestion or type a short description.';
-    $('guessChips').innerHTML = '';
-    top.forEach((g) => {
-      const b = document.createElement('button');
-      b.textContent = g.task; b.title = g.score.toFixed(2);
-      b.onclick = () => { $('desc').value = g.task; guessed = g.task; };
-      $('guessChips').appendChild(b);
-    });
-    $('guess').hidden = false;
-    if (confident && (!$('desc').value.trim() || $('desc').value === guessed)) { $('desc').value = top[0].task; guessed = top[0].task; }
-  } catch (e) { $('ocrStatus').textContent = 'Could not identify the photo; please type a short description.'; }
+function renderGuess() {
+  const { top, confident } = aggregate(S());
+  $('guessChips').innerHTML = '';
+  $('guess').hidden = !top.length;
+  $('guessTitle').textContent = confident ? 'Looks like the problem is (tap to change):' : 'Not sure. Tap a suggestion or type a short description:';
+  top.forEach((g) => {
+    const b = document.createElement('button');
+    b.textContent = g.task; b.title = g.score.toFixed(2);
+    b.onclick = () => { $('desc').value = g.task; S().guessed = g.task; };
+    $('guessChips').appendChild(b);
+  });
+}
+function autofill(st) {
+  const { top, confident } = aggregate(st);
+  if (st === S()) save();
+  if (confident && (!st.desc.trim() || st.desc === st.guessed)) { st.guessed = top[0].task; st.desc = st.guessed; if (st === S()) $('desc').value = st.desc; }
 }
 
-// Shrink screenshots so uploads stay small and fast on phones.
+// Shrink photos so uploads stay small and fast on phones.
 function shrink(file) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -196,56 +227,86 @@ function shrink(file) {
     img.src = URL.createObjectURL(file);
   });
 }
-async function addFiles(files) {
+async function addFiles(fileList) {
+  const files = [...fileList]; // copy first: the input is cleared right after this call
+  const st = S();              // photos belong to the tab they were added on
+  // 1) show every photo right away
+  const added = [];
   for (const f of files) {
-    if (!f.type.startsWith('image/') || images.length >= 5) continue;
+    if (!f.type.startsWith('image/')) continue;
+    if (st.images.length >= MAX_PHOTOS) { setStatus(st, `Up to ${MAX_PHOTOS} photos. Remove one to add another.`); break; }
     const d = await shrink(f); if (!d) continue;
-    images.push(d); texts.push('');
-    renderThumbs();
-    const idx = images.length - 1;
-    texts[idx] = await ocr(d);
-    // A work order screenshot is text-heavy; a close-up of a problem is not.
-    const isScreenshot = /work\s*description/i.test(texts[idx]) || (lastConf > 75 && texts[idx].trim().length > 150);
-    if (!isScreenshot) await guessProblem(d);
+    st.images.push(d); st.texts.push(''); st.photoGuess.push(null);
+    added.push(d);
+    if (st === S()) renderThumbs();
   }
-  renderThumbs();
+  // 2) then read / recognize them one by one
+  for (const d of added) {
+    const i = st.images.indexOf(d); if (i < 0) continue; // removed meanwhile
+    const { text, conf } = await ocr(st, d);
+    const j = st.images.indexOf(d); if (j < 0) continue;
+    st.texts[j] = text;
+    // A work order screenshot is text-heavy; a close-up of a problem is not.
+    const isScreenshot = /work\s*description/i.test(text) || (conf > 75 && text.trim().length > 150);
+    if (isScreenshot) { setStatus(st, 'Screenshot text read ✓'); continue; }
+    try {
+      const { classify } = await import('./photo.js');
+      const res = await classify(d, (m) => setStatus(st, m));
+      const k = st.images.indexOf(d); if (k < 0) continue;
+      st.photoGuess[k] = res;
+      setStatus(st, res.confident ? 'Photo checked ✓ (a guess, so edit it if it is wrong)' : 'Not sure what the problem is. Tap a suggestion or type a short description.');
+      if (st === S()) renderGuess();
+      autofill(st);
+    } catch (e) { setStatus(st, 'Could not identify the photo; please type a short description.'); }
+  }
+  if (st === S()) renderThumbs();
 }
 function renderThumbs() {
+  const st = S();
   $('thumbs').innerHTML = '';
-  images.forEach((src, i) => {
+  st.images.forEach((src, i) => {
     const d = document.createElement('div');
-    d.innerHTML = `<img src="${src}" alt="screenshot ${i + 1}"><b title="Remove">×</b>`;
-    d.querySelector('b').onclick = () => { images.splice(i, 1); texts.splice(i, 1); if (!images.length) $('guess').hidden = true; renderThumbs(); };
+    d.innerHTML = `<img src="${src}" alt="photo ${i + 1}"><b title="Remove">×</b>`;
+    d.querySelector('b').onclick = () => { st.images.splice(i, 1); st.texts.splice(i, 1); st.photoGuess.splice(i, 1); renderThumbs(); renderGuess(); };
     $('thumbs').appendChild(d);
   });
+  $('photoCount').textContent = st.images.length ? `${st.images.length} photo${st.images.length > 1 ? 's' : ''} added (up to ${MAX_PHOTOS}). Tap again to add more.` : '';
 }
 $('camBtn').onclick = () => $('camera').click();
 $('pickBtn').onclick = () => $('file').click();
-$('camera').onchange = (e) => { addFiles(e.target.files); e.target.value = ''; };
-$('file').onchange = (e) => { addFiles(e.target.files); e.target.value = ''; };
+$('camera').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; addFiles(f); };
+$('file').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; addFiles(f); };
 $('drop').ondragover = (e) => e.preventDefault();
 $('drop').ondrop = (e) => { e.preventDefault(); addFiles(e.dataTransfer.files); };
 document.addEventListener('paste', (e) => addFiles([...e.clipboardData.files]));
 
+// ---- generate ----
+function showResult(r) {
+  $('result').hidden = !r;
+  if (!r) return;
+  $('out').textContent = r.text; $('meta').textContent = r.meta;
+  $('mail').hidden = mode !== 'worq' || !config.email;
+}
 async function run() {
-  const description = $('desc').value;
-  if (!description.trim() && !images.length) { alert('Add a description or a screenshot first.'); return; }
-  $('go').disabled = $('regen').disabled = true; $('go').textContent = 'Generating…';
+  save();
+  const st = S(), m = mode;
+  if (!st.desc.trim() && !st.images.length) { alert('Add a description or a photo first.'); return; }
+  $('go').disabled = $('regen').disabled = true; const label = $('go').textContent; $('go').textContent = 'Working…';
   try {
-    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images: config.ai ? images : [], ocrText: texts.join('\n\n'), variant, crew: $('crew').value, access: $('access').value, priority: $('priority').value, notes: $('notes').value.trim() }) });
+    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: m, vendor: st.vendor, description: st.desc, images: config.ai ? st.images : [], ocrText: st.texts.join('\n\n'),
+        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, notes: st.notes.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
-    $('out').textContent = j.text;
     const words = j.text.trim().split(/\s+/).length;
-    $('meta').textContent = `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}${j.warning ? ' · ' + j.warning : ''}`;
-    $('mail').hidden = mode !== 'worq' || !config.email;
-    $('result').hidden = false;
-    $('result').scrollIntoView({ behavior: 'smooth' });
+    st.result = { text: j.text, meta: `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}${j.warning ? ' · ' + j.warning : ''}` };
+    if (m === mode) { showResult(st.result); $('result').scrollIntoView({ behavior: 'smooth' }); }
   } catch (e) { alert(e.message); }
-  $('go').disabled = $('regen').disabled = false; $('go').textContent = 'Generate';
+  $('go').disabled = $('regen').disabled = false; $('go').textContent = label;
 }
-$('go').onclick = () => { variant = 0; run(); };
-$('regen').onclick = () => { variant += 1; run(); };
+$('go').onclick = () => { S().variant = 0; run(); };
+$('regen').onclick = () => { S().variant += 1; run(); };
+$('clear').onclick = () => { state[mode] = fresh(); load(); };
 $('copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('out').textContent); $('copy').textContent = 'Copied ✓'; }
   catch { const r = document.createRange(); r.selectNodeContents($('out')); getSelection().removeAllRanges(); getSelection().addRange(r); }
@@ -255,6 +316,7 @@ $('mail').onclick = () => {
   const t = $('out').textContent;
   location.href = `mailto:${config.email}?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(t)}`;
 };
+setMode('closure');
 </script>
 </body>
 </html>
