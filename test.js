@@ -123,6 +123,27 @@ assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { coun
   assert.ok(sitesFile.sites.some((x) => /1400 W 18th St/.test(x.a) && x.c === 'Chicago'), 'known Chicago branch missing');
   const sited = await handle({ mode: 'worq', description: 'clogged sink in the lobby', ...base, address: 'BMO Pilsen Branch, 1400 W 18th St, Chicago, IL 60608' }, '', '');
   assert.ok(sited.text.includes('• Location: BMO Pilsen Branch, 1400 W 18th St, Chicago, IL 60608 (Lobby)'), sited.text);
+  // 6b) the real case from a technician's phone: a STOP SIGN in a branch parking lot must never come out as a lit business sign
+  const photoCase = { mode: 'worq', description: 'repair sign', ...base, address: 'BMO Washington Heights Branch, 1620 W 95th St, Chicago, IL 60643', answers: { where: 'Parking lot' }, notes: 'Safety concern' };
+  const vague = await handle(photoCase, '', '');
+  assert.ok(vague.blocked && vague.required.some((q) => q.id === 'what' && q.options.some((o) => /stop sign/i.test(o))), 'a vague "repair sign" must ask what is wrong');
+  const fixed = await handle({ ...photoCase, answers: { where: 'Parking lot', what: 'Stop sign leaning or knocked down' } }, '', '');
+  assert.ok(!fixed.blocked && /stop sign/i.test(fixed.request), fixed.request);
+  assert.ok(!/lighting|customers|lift|ladder|2 man|investigate and repair sign\b/i.test(fixed.text), `stop sign text still assumes a lit business sign: ${fixed.text}`);
+  assert.ok(/post|sign face|drivers/i.test(fixed.text), fixed.text);
+  const bldg = await handle({ ...photoCase, description: 'building sign not lit', answers: { where: 'Exterior' } }, '', '');
+  assert.ok(!bldg.blocked && /lighting|customers/i.test(bldg.text), 'a lit building sign should still describe lighting');
+  // items that could mean several different jobs must ask what is wrong, never guess
+  for (const d of ['repair sign', 'repair parking lot', 'repair gutter', 'repair water heater', 'repair camera', 'fix door closer', 'repair wall pack']) {
+    const r = await handle({ mode: 'worq', description: d, ...base, answers: { where: 'Exterior' } }, '', '');
+    assert.ok(r.blocked && r.required.some((q) => q.id === 'what'), `"${d}" should ask what is wrong instead of guessing`);
+  }
+  assert.ok(/damaged|re-hang|sagging|secure/i.test((await handle({ mode: 'worq', description: 'gutter damaged', ...base, answers: { where: 'Exterior' } }, '', '')).text), 'a damaged gutter must not be written up as a clog');
+  // every problem type that matches on the item alone has to be a deliberate choice (a service task or an obvious single job)
+  const { SCENARIOS } = require('./scenarios');
+  const OK_ON_ITEM_ALONE = new Set(['toilet-seat-x', 'low-pressure', 'sewer', 'frozen-pipe', 'backflow', 'power-loss', 'backup-power', 'fire-alarm', 'extension-cord', 'condensate', 'frozen-coil', 'refrigerant', 'chiller', 'cold-space', 'air-quality', 'paint-job', 'caulk', 'grout', 'graffiti', 'rekey', 'roof-drain', 'striping', 'landscape', 'snow-ice', 'power-wash', 'trash', 'pest', 'odor', 'water-extract', 'extinguisher', 'emergency-equip', 'egress', 'shingles', 'mold', 'excess-heat-x']);
+  const unexpected = SCENARIOS.filter((x) => !x.sym && !OK_ON_ITEM_ALONE.has(x.id)).map((x) => x.id);
+  assert.deepStrictEqual(unexpected, [], `these match on the item alone and may be guessing the problem: ${unexpected.join(', ')}`);
   // 7) messy phrases the way technicians really type them
   const { matchScenario } = require('./scenarios');
   const cases = {
@@ -139,7 +160,7 @@ assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { coun
     'roof drain clogged': 'roof-drain', 'flashing damaged': 'flashing', 'light pole leaning': 'light-pole', 'parking stripes faded': 'striping',
     'cracked asphalt': 'asphalt-crack', 'damaged bollard': 'curb-bollard', 'storm drain clogged': 'catch-basin', 'trees overgrown': 'landscape', 'icy walkway': 'snow-ice',
     'mice in the break room': 'pest', 'sprinkler head leaking': 'sprinkler', 'fire extinguisher inspection': 'extinguisher', 'counter top peeling': 'countertop',
-    'broken chair': 'furniture-fix', 'standing water in lobby': 'water-extract',
+    'broken chair': 'furniture-fix', 'standing water in lobby': 'water-extract', 'stop sign leaning': 'traffic-sign', 'faded handicap parking sign': 'traffic-sign', 'building sign not lit': 'sign', 'gutter hanging loose': 'gutter-damage', 'water heater leaking': 'water-heater-leak',
   };
   for (const [phrase, id] of Object.entries(cases)) {
     const m = matchScenario(phrase);

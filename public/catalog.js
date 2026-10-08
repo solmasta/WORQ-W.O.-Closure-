@@ -102,12 +102,13 @@ export const CATALOG = {
     'Canopy / awning': ['Damaged'],
     'Siding / soffit / fascia': ['Damaged', 'Rotted'],
     'Brick / masonry / stucco': ['Cracked', 'Missing'],
-    'Sign': ['Not working', 'Damaged'],
+    'Building / storefront sign': ['Not lit', 'Damaged', 'Loose'],
     'Fence / gate': ['Damaged', 'Loose'],
     'Light pole': ['Leaning', 'Damaged'],
   },
   'Grounds / Parking': {
     'Parking lot': ['Pothole', 'Cracked pavement'],
+    'Stop / traffic sign': ['Leaning', 'Knocked down', 'Faded', 'Damaged', 'Missing'],
     'Parking striping': ['Faded'],
     'Curb / bollard': ['Damaged'],
     'Sidewalk': ['Cracked', 'Trip hazard'],
@@ -144,7 +145,7 @@ const PREP = { Roof: 'on', Exterior: 'on', Entrance: 'at', 'Loading dock': 'at',
 const lc = (l) => (/^[A-Z]{2,}/.test(l) ? l : l.charAt(0).toLowerCase() + l.slice(1));
 
 const ITEM_PHRASE = { 'Air quality / humidity': 'humidity', 'Exit sign / emergency light': 'emergency light', 'Mini-split / IT room AC': 'IT room AC', 'Card reader / access control': 'card reader',
-  'Automatic door / ADA operator': 'automatic door', 'Panic / exit device': 'exit device', 'Boiler / hydronic heat': 'boiler', 'Ballast / LED driver': 'ballast', 'Canopy / soffit light': 'canopy light', 'Overhead / dock door': 'overhead door' };
+  'Automatic door / ADA operator': 'automatic door', 'Panic / exit device': 'exit device', 'Boiler / hydronic heat': 'boiler', 'Ballast / LED driver': 'ballast', 'Stop / traffic sign': 'stop sign', 'Building / storefront sign': 'building sign', 'Canopy / soffit light': 'canopy light', 'Overhead / dock door': 'overhead door' };
 const IN_THE = { hole: 'in the', crack: 'in the', 'water damage': 'on the' };
 
 // -> e.g. "clogged sink in the kitchen", "exterior wall pack light not working in the parking lot"

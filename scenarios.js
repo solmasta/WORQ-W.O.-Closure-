@@ -9,7 +9,7 @@ const ADJ = [
   [/un?clog|clog|plug|backed|stopped|blocked|block/i, 'clogged'],
   [/leak|drip|seep/i, 'leaking'],
   [/crack/i, 'cracked'], [/broke|broken|busted/i, 'broken'], [/loose|wobbl/i, 'loose'],
-  [/\brunning\b|\brun\b/i, 'running'], [/stuck|jam/i, 'jammed'], [/stain/i, 'stained'], [/noisy|loud|squeal|rattl|vibrat/i, 'noisy'], [/missing/i, 'missing'],
+  [/\brunning\b|\brun\b/i, 'running'], [/stuck|jam/i, 'jammed'], [/\bnot lit\b|\bunlit\b|\bdark\b/i, 'unlit'], [/stain/i, 'stained'], [/noisy|loud|squeal|rattl|vibrat/i, 'noisy'], [/missing/i, 'missing'],
   [/burn|burnt|\bout\b/i, 'burned-out'], [/dead/i, 'dead'], [/flicker/i, 'flickering'], [/\bdim\b/i, 'dim'], [/peel/i, 'peeling'], [/damag/i, 'damaged'],
 ];
 
@@ -167,10 +167,27 @@ for (const sc of SCENARIOS) {
   if (SCOPE[sc.id]) { sc.scope = SCOPE[sc.id][0]; sc.why = SCOPE[sc.id][1]; }
 }
 
+// If an item alone could mean several different jobs ("sign", "gutter", "parking lot", "water heater"), the technician
+// must say what is wrong. Otherwise the app would be guessing, so these only match when a problem is named.
+const PROB = /\bnot\b|n'?t\b|\bno\b|\bout\b|\boff\b|broke|damag|crack|stuck|jam|leak|drip|loose|nois|loud|dead|fail|dark|offline|\bdown\b|flicker|slow|block|clog|missing|bent|worn|frozen|spark|trip|dim|hum\b|buzz|stain|rust|fall|fell|hang|sag|lean|fad|torn|rip|burn|overflow|back(ed|ing)|weak|low|hot|cold|smell|odor|rattl|squeal|grind|bang|knock|tilt|crooked|twist|warp|split|peel|bubbl|wet|sweat|dirty|inoperab|chirp|batter|expire|won'?t|doesn'?t|unplug|hit|struck|vandal|graffiti|sink|sunk|hole/i;
+const SYM_FOR = {
+  gutter: /clog|block|overflow|debris|leaf|leaves|full|backed|dirty|plug/i,
+  pothole: /pothole|hole|crater|sunk|sunken|depress|deteriorat|crumbl|broken up|washout|void/i,
+  hotwater: /\bno\b|\bnot\b|cold|lukewarm|pilot|won'?t|fail|broke|out of|runs? out|insufficient|slow/i,
+  sign: /\bnot\b|\blit\b|dark|\bout\b|burn|damag|broke|crack|fade|loose|hang|flicker|fall|leak|dim|missing|letter/i,
+};
+const NEEDS_PROBLEM = ['camera', 'access-control', 'door-closer', 'auto-door', 'panic-bar', 'night-drop', 'boiler', 'mini-split', 'sensor-faucet', 'light-control', 'data-jack', 'elevator', 'fountain', 'area-light', 'skylight', 'flashing', 'blinds', 'door-frame', 'hinge', 'toilet-seat', 'weatherstrip', 'smoke', 'emergency-light', 'gfci', 'sump', 'wallpack', 'membrane', 'overhead-door'];
+for (const sc of SCENARIOS) {
+  if (sc.id === 'door') sc.no = /closer|panic|exit device|crash bar|automatic|auto door|operator|overhead|roll[- ]?up|dock door|garage door|frame|jamb|hinge|weather ?strip|sweep|threshold/i;
+  if (sc.id === 'sign') sc.no = /stop|traffic|street|parking sign|ada|handicap|reserved|post|pole/i;
+  if (SYM_FOR[sc.id]) sc.sym = SYM_FOR[sc.id];
+  else if (NEEDS_PROBLEM.includes(sc.id) && !sc.sym) sc.sym = PROB;
+}
+
 const clean = (s) => s.replace(/[.\s]+$/, '').replace(/\s+/g, ' ').trim();
 
 // text -> {scenario, subject} or null
-const FILLER = /^(please|pls|fix|repair|replace|the|a|an|my|is|are|has|have|not|working|work|need|needs|to|and|of|problem|issue|request|worq|mts|vendor|third|party|needed|clogged|clog|un?clog\w*|leak\w*|drip\w*|broke\w*|crack\w*|stuck|jam\w*|out|no|won'?t|burn\w*|dead|dim|flicker\w*|stain\w*|peel\w*|cool\w*|heat\w*|warm|hot|run\w*|noisy|loud|rekey|re-key|treat|remove|clear|clean|patch|install|trim|inspect|service|restripe|please)$/i;
+const FILLER = /^(please|pls|fix|repair|replace|the|a|an|my|is|are|has|have|not|working|work|need|needs|to|and|of|problem|issue|request|worq|mts|vendor|third|party|needed|clogged|clog|un?clog\w*|leak\w*|drip\w*|broke\w*|crack\w*|stuck|jam\w*|out|no|won'?t|burn\w*|dead|dim|flicker\w*|stain\w*|peel\w*|cool\w*|heat\w*|warm|hot|run\w*|noisy|loud|rekey|re-key|treat|remove|clear|clean|patch|install|trim|inspect|service|restripe|please|lit|dark)$/i;
 const PREPS = /^(in|on|at|by|near|inside|outside|behind|under|above|of|the)$/i;
 const VERBISH = /^(paint|repaint|rekey|re-key|treat|clear|clean|trim|remove|patch|install|inspect|service|restripe|pressure wash)$/i;
 

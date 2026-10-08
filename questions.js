@@ -9,8 +9,10 @@ const o = (label, extra = {}) => ({ label, ...extra });
 const WHERE = ['Kitchen', 'Break room', 'Restroom', 'Lobby', 'Teller line', 'Vault', 'Office', 'Hallway', 'IT Room', 'Storage room', 'Mechanical room', 'Roof', 'Exterior', 'Parking lot'];
 // Common problems by item, offered when a request is too vague (e.g. just "fix wall").
 const NOUN_SYMPTOMS = [
+  [/water heater|hot water/i, ['Water heater leaking', 'No hot water', 'Water heater not heating enough']],
   [/wall|drywall|sheetrock/i, ['Hole in the wall', 'Crack in the wall', 'Water damage or stain on the wall', 'Scuffed or marked wall', 'Peeling paint on the wall', 'Damaged corner or baseboard']],
   [/ceiling/i, ['Water-stained ceiling tile', 'Missing ceiling tile', 'Damaged ceiling tile', 'Peeling paint on the ceiling']],
+  [/overhead door|roll[- ]?up|dock door|garage door|coiling/i, ['Overhead door not working', 'Dock door stuck', 'Roll-up door damaged']],
   [/door/i, ["Door sticking or won't latch", 'Door damaged or broken', 'Door lock or handle broken', 'Door closer not working']],
   [/lock|key/i, ['Lock broken', 'Lock jammed', 'Key not working']],
   [/window|glass/i, ['Broken window', 'Cracked glass', 'Window will not open or close', 'Window leaking']],
@@ -19,11 +21,28 @@ const NOUN_SYMPTOMS = [
   [/sink|drain/i, ['Sink clogged', 'Sink leaking', 'Drain slow']],
   [/toilet|urinal/i, ['Toilet clogged', 'Toilet running', 'Toilet leaking']],
   [/roof|shingle/i, ['Roof leaking', 'Loose shingles', 'Missing shingles']],
-  [/heat|hvac|\bac\b|air/i, ['Not heating', 'Not cooling', 'Excessive heat in the space']],
+  [/\bheat\w*|hvac|\bac\b|\bair\b|furnace|rtu|rooftop/i, ['Not heating', 'Not cooling', 'Excessive heat in the space']],
   [/paint/i, ['Peeling paint', 'Scuffed paint', 'Stained paint']],
+  [/stop sign|traffic sign|street sign|parking sign|sign ?post|speed limit|yield|one[- ]?way/i, ['Stop sign leaning or knocked down', 'Stop sign faded or hard to read', 'Traffic sign damaged or bent', 'Traffic sign missing', 'Sign post loose or rusted']],
+  [/\bsigns?\b|signage/i, ['Stop sign leaning or knocked down', 'Traffic sign faded or damaged', 'Building sign not lit', 'Building sign damaged or loose', 'Sign letters missing or broken']],
+  [/gutter|downspout/i, ['Gutter clogged', 'Gutter damaged or sagging', 'Gutter leaking', 'Downspout disconnected or damaged']],
+  [/parking lot|pavement|asphalt|blacktop/i, ['Pothole in the parking lot', 'Cracked pavement in the parking lot', 'Parking lot striping faded', 'Parking lot light not working', 'Storm drain clogged in the parking lot', 'Curb or bollard damaged']],
+  [/wall ?pack|exterior light|outdoor light|pole light|flood ?light|security light/i, ['Exterior lights not working', 'Wall pack light flickering', 'Light fixture damaged or hanging loose']],
+  [/camera|cctv|surveillance/i, ['Camera not working', 'Camera offline', 'Camera view blocked or misaimed']],
+  [/card reader|access control|keypad|badge|fob|mag ?lock/i, ['Card reader not working', 'Keypad not working', 'Magnetic lock not working']],
+  [/closer|exit device|panic|automatic door|auto door|door operator/i, ['Door closer not working', 'Exit device not working', 'Automatic door not working']],
+  [/boiler|hydronic|radiator|mini[- ]?split/i, ['Boiler not heating', 'Mini split not working', 'Heating pipe leaking']],
+  [/blinds?|shade/i, ['Blinds broken', 'Blind cord broken', 'Blinds will not stay up']],
+  [/smoke|detector|alarm/i, ['Smoke detector chirping', 'Smoke detector not working', 'Fire alarm trouble signal']],
+  [/fountain|bubbler|sensor faucet|faucet/i, ['Faucet leaking', 'Drinking fountain not working', 'Sensor faucet not working']],
+  [/camera|elevator|escalator/i, ['Elevator not working', 'Camera not working']],
 ];
 const GENERIC_SYMPTOMS = ['Broken or damaged', 'Not working', 'Leaking', 'Loose', 'Clogged'];
-const symptomsFor = (text) => (NOUN_SYMPTOMS.find(([re]) => re.test(text || '')) || [null, GENERIC_SYMPTOMS])[1];
+// look at the item words only: the verb ("repair", "fix") must not steer the choices
+const symptomsFor = (text) => {
+  const item = (text || '').replace(/\b(please|pls|repair|fix|replace|install|service|inspect|check|investigate|need|needs|needed|to)\b/gi, ' ');
+  return (NOUN_SYMPTOMS.find(([re]) => re.test(item)) || [null, GENERIC_SYMPTOMS])[1];
+};
 
 const WHY_OPTIONS = ['Safety hazard', 'Equipment is down or not working', 'Customer or employee impact', 'Risk of water damage', 'Appearance / unprofessional', 'Preventive or compliance'];
 
