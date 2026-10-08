@@ -98,14 +98,17 @@
         <div><label for="access">Access needed</label><select id="access"><option value="">None</option><option value="ladder">Ladder</option><option value="lift">Lift</option><option value="roof">Roof access</option><option value="afterhours">After hours</option><option value="lockout">Lockout/tagout</option><option value="fm">Contact Facility Manager</option></select></div>
       </div>
     </details>
-    <div class="row" style="margin:12px 0 0">
+    <label id="photoTitle" style="margin-top:14px">Photos for this closing comment</label>
+    <div class="meta" style="margin:-2px 0 6px">Add as many as you need. Photos stay with this tab only; the other tab starts with none.</div>
+    <div class="row" style="margin:0">
       <button id="camBtn" type="button">📷 Take photo</button>
-      <button id="pickBtn" type="button">🖼️ Upload photos or files</button>
+      <button id="pickBtn" type="button">🖼️ Choose photos (pick several)</button>
     </div>
     <div class="drop" id="drop">or paste / drop screenshots here</div>
     <input type="file" id="camera" accept="image/*" capture="environment" hidden>
     <input type="file" id="file" accept="image/*" multiple hidden>
     <div class="thumbs" id="thumbs"></div>
+    <div class="row" style="margin-top:8px"><button id="moreBtn" type="button" hidden>＋ Add more photos</button></div>
     <div class="meta" id="photoCount"></div>
     <div class="meta" id="ocrStatus"></div>
     <div id="guess" hidden>
@@ -135,12 +138,13 @@
       <div id="qList"></div>
     </div>
   </div>
+  <div class="meta" id="ver" style="text-align:center;margin:4px 0 28px"></div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-const MAX_PHOTOS = 6;
+const MAX_PHOTOS = 8;
 let config = { email: '' };
-fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
+fetch('/api/config').then((r) => r.json()).then((c) => { config = c; $('ver').textContent = `Version ${c.version || 'dev'}`; }).catch(() => {});
 
 // Closing Comment and WORQ are completely separate: each keeps its own photos, text, menus and result.
 const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', fm: '', nte: '', vendorName: '', answers: {}, lastDesc: '', addr: '', siteName: '', crew: '', access: '', priority: '',
@@ -190,6 +194,7 @@ function setMode(m) {
   $('desc').placeholder = m === 'worq' ? 'e.g. exterior wall pack lights not working' : 'e.g. sink clogged kitchen';
   $('notes').placeholder = m === 'worq' ? 'e.g. needs a lift; after hours only' : 'e.g. replaced 3 lamps and a photocell';
   $('go').textContent = m === 'worq' ? 'Create WORQ request' : 'Create closing comment';
+  $('photoTitle').textContent = m === 'worq' ? 'Photos for this WORQ request' : 'Photos for this closing comment';
   $('nteWrap').hidden = $('prioWrap').hidden = m !== 'worq'; document.querySelectorAll('.wq').forEach((e) => (e.hidden = m !== 'worq'));
   load();
 }
@@ -276,16 +281,18 @@ function shrink(file) {
 async function addFiles(fileList) {
   const files = [...fileList]; // copy first: the input is cleared right after this call
   const st = S();              // photos belong to the tab they were added on
-  // 1) show every photo right away
-  const added = [];
+  // 1) show every photo right away, and say what happened to each
+  const added = []; let failed = 0, skipped = 0;
   for (const f of files) {
-    if (!f.type.startsWith('image/')) continue;
-    if (st.images.length >= MAX_PHOTOS) { setStatus(st, `Up to ${MAX_PHOTOS} photos. Remove one to add another.`); break; }
-    const d = await shrink(f); if (!d) continue;
+    if (!f.type.startsWith('image/')) { failed += 1; continue; }
+    if (st.images.length >= MAX_PHOTOS) { skipped += 1; continue; }
+    const d = await shrink(f); if (!d) { failed += 1; continue; }
     st.images.push(d); st.texts.push(''); st.photoGuess.push(null);
     added.push(d);
     if (st === S()) renderThumbs();
   }
+  const note = [`Added ${added.length} of ${files.length} photo${files.length === 1 ? '' : 's'}.`, failed ? `${failed} could not be read (try a JPG or PNG).` : '', skipped ? `${skipped} skipped: the limit is ${MAX_PHOTOS} photos.` : ''].filter(Boolean).join(' ');
+  setStatus(st, note);
   // 2) then read / recognize them one by one
   for (const d of added) {
     const i = st.images.indexOf(d); if (i < 0) continue; // removed meanwhile
@@ -294,7 +301,7 @@ async function addFiles(fileList) {
     st.texts[j] = text;
     // A work order screenshot is text-heavy; a close-up of a problem is not.
     const isScreenshot = /work\s*description/i.test(text) || (conf > 75 && text.trim().length > 150);
-    if (isScreenshot) { setStatus(st, 'Screenshot text read ✓'); continue; }
+    if (isScreenshot) { setStatus(st, `${note} Screenshot text read ✓`); continue; }
     try {
       const { classify } = await import('./photo.js');
       const res = await classify(d, (m) => setStatus(st, m));
@@ -316,10 +323,12 @@ function renderThumbs() {
     d.querySelector('b').onclick = () => { st.images.splice(i, 1); st.texts.splice(i, 1); st.photoGuess.splice(i, 1); renderThumbs(); renderGuess(); };
     $('thumbs').appendChild(d);
   });
+  $('moreBtn').hidden = !st.images.length || st.images.length >= MAX_PHOTOS;
   $('photoCount').textContent = st.images.length ? `${st.images.length} photo${st.images.length > 1 ? 's' : ''} added (up to ${MAX_PHOTOS}). Tap again to add more.` : '';
 }
 $('camBtn').onclick = () => $('camera').click();
 $('pickBtn').onclick = () => $('file').click();
+$('moreBtn').onclick = () => $('file').click();
 $('camera').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; addFiles(f); };
 $('file').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; addFiles(f); };
 $('drop').ondragover = (e) => e.preventDefault();
