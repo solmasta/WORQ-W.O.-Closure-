@@ -32,6 +32,9 @@
   .suggest div { padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--line); }
   .suggest div:last-child { border-bottom:0; } .suggest div:hover { background:var(--bg); }
   #map { height:210px; border-radius:8px; margin:8px 0; border:1px solid var(--line); }
+  .err { color:#d33; font-weight:600; margin-top:10px; }
+  .bad { border-color:#d33 !important; }
+  .req { color:#d33; font-weight:600; font-size:.85rem; }
   .q { margin:12px 0 4px; font-weight:600; } .qopts { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
   .qopts button { padding:8px 12px; } .qopts input { flex:1; min-width:140px; }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
@@ -51,13 +54,17 @@
 
   <div class="card">
     <div id="vendorRow" hidden>
-      <label>Who does the work?</label>
+      <label>Vendor (who does the work?)</label>
       <div class="row" style="margin-top:0">
         <button id="vMts" class="on">MTS</button>
         <button id="vVendor">Third party vendor</button>
       </div>
+      <div id="vendorNameWrap" hidden style="margin-top:8px">
+        <label for="vendorName">Vendor name (optional)</label>
+        <input id="vendorName" type="text" placeholder="e.g. ABC Roofing" autocomplete="off">
+      </div>
     </div>
-    <label for="addr">Site address</label>
+    <label for="addr">Site address <span class="req wq">(required for WORQ)</span></label>
     <div style="position:relative">
       <input id="addr" type="text" autocomplete="off" placeholder="Start typing the street address…">
       <div id="addrList" class="suggest" hidden></div>
@@ -74,15 +81,19 @@
     </div>
     <label for="desc" id="descLabel">What repair was done?</label>
     <textarea id="desc" placeholder="e.g. replaced bad capacitor on compressor"></textarea>
-    <div style="margin-top:12px"><label for="fm">Facility Manager</label>
+    <div style="margin-top:12px"><label for="fm">Facility Manager <span class="req wq">(required for WORQ)</span></label>
       <select id="fm"><option value="">Not specified</option></select></div>
+    <div style="margin-top:12px" id="prioWrap"><label for="priority">Priority (Rush, Normal)</label>
+      <select id="priority"><option value="">Normal</option><option value="rush">Rush</option></select></div>
+    <div style="margin-top:12px" id="nteWrap"><label for="nteSel">NTE (not-to-exceed amount) <span class="req">(required)</span></label>
+      <select id="nteSel"><option value="">Select amount…</option><option>$250</option><option>$500</option><option>$1,000</option><option>$2,500</option><option>$5,000</option><option>$7,500</option><option>$10,000</option><option value="__other">Other amount…</option><option>No NTE needed</option></select>
+      <input id="nte" type="text" inputmode="decimal" placeholder="Enter amount, e.g. $3,500" autocomplete="off" hidden style="margin-top:8px"></div>
     <div style="margin-top:12px"><label for="notes">Extra details (optional)</label>
       <textarea id="notes" style="min-height:60px" placeholder="e.g. replaced 3 lamps and a photocell; needs a lift"></textarea></div>
-    <details id="more" style="margin-top:8px"><summary>More options (crew, access, priority)</summary>
+    <details id="more" style="margin-top:8px"><summary>More options (crew size, access)</summary>
       <div class="grid" style="margin-top:8px">
         <div><label for="crew">Crew size</label><select id="crew"><option value="">Not specified</option><option value="1">1 man job</option><option value="2">2 man job</option><option value="3">3 man job</option></select></div>
         <div><label for="access">Access needed</label><select id="access"><option value="">None</option><option value="ladder">Ladder</option><option value="lift">Lift</option><option value="roof">Roof access</option><option value="afterhours">After hours</option><option value="lockout">Lockout/tagout</option><option value="fm">Contact Facility Manager</option></select></div>
-        <div><label for="priority">Priority</label><select id="priority"><option value="">Routine</option><option value="urgent">Urgent</option><option value="safety">Safety concern</option></select></div>
       </div>
     </details>
     <div class="row" style="margin:12px 0 0">
@@ -99,19 +110,25 @@
       <div class="meta" id="guessTitle">Looks like the problem is (tap to change):</div>
       <div class="row" id="guessChips" style="flex-wrap:wrap"></div>
     </div>
+    <div class="err" id="formErr" hidden></div>
     <div class="row"><button class="primary" id="go">Create closing comment</button><button id="clear" type="button" style="flex:0 0 auto">Clear</button></div>
   </div>
 
   <div class="card" id="result" hidden>
-    <div id="out"></div>
-    <div class="meta" id="meta"></div>
-    <div class="row">
-      <button id="copy">Copy</button>
-      <button id="regen">Regenerate</button>
-      <button id="mail" hidden>Email</button>
+    <div class="err" id="blockedMsg" hidden style="margin:0 0 6px">We need a little more detail first. Generic requests like "fix wall" are not accepted. Please answer below.</div>
+    <div id="outWrap">
+      <div class="meta" id="subjectLine" hidden></div>
+      <div id="out"></div>
+      <div class="meta" id="meta"></div>
+      <div class="row" style="flex-wrap:wrap">
+        <button id="copy">Copy</button>
+        <button id="copyLine" hidden>Copy request line</button>
+        <button id="regen">Regenerate</button>
+        <button id="mail" hidden>Open email</button>
+      </div>
     </div>
     <div id="qs" hidden>
-      <div class="meta" style="margin-top:14px">A few quick questions to make this more accurate (tap an answer and it updates):</div>
+      <div class="meta" id="qsTitle" style="margin-top:14px">A few quick questions to make this more accurate (tap an answer and it updates):</div>
       <div id="qList"></div>
     </div>
   </div>
@@ -123,7 +140,7 @@ let config = { email: '' };
 fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
 
 // Closing Comment and WORQ are completely separate: each keeps its own photos, text, menus and result.
-const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', fm: '', answers: {}, lastDesc: '', addr: '', lat: null, lon: null, crew: '', access: '', priority: '',
+const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', fm: '', nte: '', vendorName: '', answers: {}, lastDesc: '', addr: '', lat: null, lon: null, crew: '', access: '', priority: '',
   mCat: '', mItem: '', mProb: '', mLoc: '', vendor: 'mts', variant: 0, guessed: '', result: null, status: '' });
 const state = { closure: fresh(), worq: fresh() };
 let mode = 'closure';
@@ -148,14 +165,15 @@ function save() {
   const st = S();
   if ($('desc').value !== st.lastDesc) { st.answers = {}; st.lastDesc = $('desc').value; } // a new description means new questions
   st.addr = $('addr').value;
-  Object.assign(st, { desc: $('desc').value, notes: $('notes').value, fm: $('fm').value, crew: $('crew').value, access: $('access').value, priority: $('priority').value,
+  Object.assign(st, { desc: $('desc').value, notes: $('notes').value, fm: $('fm').value, nte: $('nteSel').value === '__other' ? $('nte').value : $('nteSel').value, vendorName: $('vendorName').value, crew: $('crew').value, access: $('access').value, priority: $('priority').value,
     mCat: $('mCat').value, mItem: $('mItem').value, mProb: $('mProb').value, mLoc: $('mLoc').value });
 }
 function load() {
   const st = S();
-  $('desc').value = st.desc; $('notes').value = st.notes; $('fm').value = st.fm; $('addr').value = st.addr; $('addrList').hidden = true; $('addrNote').textContent = '';
+  $('desc').value = st.desc; $('notes').value = st.notes; $('fm').value = st.fm; $('vendorName').value = st.vendorName; setNte(st.nte); clearErr(); $('addr').value = st.addr; $('addrList').hidden = true; $('addrNote').textContent = '';
   st.lastDesc = st.desc; showMap(st); $('crew').value = st.crew; $('access').value = st.access; $('priority').value = st.priority;
   setMenus(st);
+  showVendorName();
   $('vMts').classList.toggle('on', st.vendor === 'mts'); $('vVendor').classList.toggle('on', st.vendor === 'vendor');
   $('ocrStatus').textContent = st.status;
   renderThumbs(); renderGuess();
@@ -170,12 +188,13 @@ function setMode(m) {
   $('desc').placeholder = m === 'worq' ? 'e.g. exterior wall pack lights not working' : 'e.g. sink clogged kitchen';
   $('notes').placeholder = m === 'worq' ? 'e.g. needs a lift; after hours only' : 'e.g. replaced 3 lamps and a photocell';
   $('go').textContent = m === 'worq' ? 'Create WORQ request' : 'Create closing comment';
+  $('nteWrap').hidden = $('prioWrap').hidden = m !== 'worq'; document.querySelectorAll('.wq').forEach((e) => (e.hidden = m !== 'worq'));
   load();
 }
 $('tabClosure').onclick = () => setMode('closure');
 $('tabWorq').onclick = () => setMode('worq');
-$('vMts').onclick = () => { save(); S().vendor = 'mts'; load(); };
-$('vVendor').onclick = () => { save(); S().vendor = 'vendor'; load(); };
+$('vMts').onclick = () => { save(); S().vendor = 'mts'; load(); showVendorName(); };
+$('vVendor').onclick = () => { save(); S().vendor = 'vendor'; load(); showVendorName(); };
 
 function buildFromMenus() {
   if (!catalog || !$('mItem').value) return;
@@ -307,25 +326,43 @@ document.addEventListener('paste', (e) => addFiles([...e.clipboardData.files]));
 
 // ---- follow-up questions ----
 function answer(id, value) { S().answers[id] = value; run(); }
-function renderQuestions(qs) {
+function renderQuestions(qs, required) {
   const list = $('qList'); list.innerHTML = '';
   $('qs').hidden = !qs || !qs.length;
+  $('qsTitle').textContent = required ? 'Required: pick an answer or type one to continue.' : 'A few quick questions to make this more accurate (tap an answer and it updates):';
   (qs || []).forEach((q) => {
     const wrap = document.createElement('div');
     const label = document.createElement('div'); label.className = 'q'; label.textContent = q.q; wrap.appendChild(label);
     const opts = document.createElement('div'); opts.className = 'qopts';
-    if (q.type === 'text') {
-      const inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = 'Type your answer';
+    if (q.type !== 'text') q.options.forEach((o) => { const b = document.createElement('button'); b.textContent = o; b.onclick = () => answer(q.id, o); opts.appendChild(b); });
+    if (q.type === 'text' || q.type === 'both') {
+      const inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = q.type === 'both' ? 'Or type your own answer' : 'Type your answer';
       const add = document.createElement('button'); add.textContent = 'Add'; add.onclick = () => { if (inp.value.trim()) answer(q.id, inp.value.trim()); };
       inp.onkeydown = (e) => { if (e.key === 'Enter') add.click(); };
       opts.append(inp, add);
-    } else {
-      q.options.forEach((label) => { const b = document.createElement('button'); b.textContent = label; b.onclick = () => answer(q.id, label); opts.appendChild(b); });
     }
-    const skip = document.createElement('button'); skip.textContent = 'Skip'; skip.onclick = () => answer(q.id, '__skip'); opts.appendChild(skip);
+    if (!q.required) { const skip = document.createElement('button'); skip.textContent = 'Skip'; skip.onclick = () => answer(q.id, '__skip'); opts.appendChild(skip); }
     wrap.appendChild(opts); list.appendChild(wrap);
   });
 }
+
+// ---- NTE drop-down (with an "Other amount" box) ----
+const NTE_PRESETS = [...$('nteSel').options].map((o) => o.value || o.text).filter((v) => v && v !== '__other');
+function setNte(v) {
+  const sel = $('nteSel'), box = $('nte');
+  if (!v) { sel.value = ''; box.hidden = true; box.value = ''; }
+  else if (NTE_PRESETS.includes(v)) { sel.value = v; box.hidden = true; box.value = ''; }
+  else { sel.value = '__other'; box.hidden = false; box.value = v; }
+}
+function showVendorName() { $('vendorNameWrap').hidden = !(mode === 'worq' && S().vendor === 'vendor'); }
+$('nteSel').onchange = () => {
+  const v = $('nteSel').value;
+  $('nte').hidden = v !== '__other';
+  S().nte = v === '__other' ? $('nte').value : v;
+  if (v === '__other') $('nte').focus();
+  clearErr();
+};
+$('nte').onblur = () => { const t = $('nte').value.trim(); if (/^\$?[\d,.]+$/.test(t)) { const n = Number(t.replace(/[$,]/g, '')); if (!isNaN(n)) { $('nte').value = '$' + n.toLocaleString('en-US'); S().nte = $('nte').value; } } };
 
 // ---- site address: type-ahead search + map pin (OpenStreetMap data via Photon; free, no key) ----
 const STATES = { Alabama:'AL', Alaska:'AK', Arizona:'AZ', Arkansas:'AR', California:'CA', Colorado:'CO', Connecticut:'CT', Delaware:'DE', 'District of Columbia':'DC', Florida:'FL', Georgia:'GA', Hawaii:'HI', Idaho:'ID', Illinois:'IL', Indiana:'IN', Iowa:'IA', Kansas:'KS', Kentucky:'KY', Louisiana:'LA', Maine:'ME', Maryland:'MD', Massachusetts:'MA', Michigan:'MI', Minnesota:'MN', Mississippi:'MS', Missouri:'MO', Montana:'MT', Nebraska:'NE', Nevada:'NV', 'New Hampshire':'NH', 'New Jersey':'NJ', 'New Mexico':'NM', 'New York':'NY', 'North Carolina':'NC', 'North Dakota':'ND', Ohio:'OH', Oklahoma:'OK', Oregon:'OR', Pennsylvania:'PA', 'Rhode Island':'RI', 'South Carolina':'SC', 'South Dakota':'SD', Tennessee:'TN', Texas:'TX', Utah:'UT', Vermont:'VT', Virginia:'VA', Washington:'WA', 'West Virginia':'WV', Wisconsin:'WI', Wyoming:'WY' };
@@ -409,26 +446,48 @@ $('useLoc').onclick = () => {
 };
 
 // ---- generate ----
+function clearErr() { $('formErr').hidden = true; ['addr', 'fm', 'nte', 'nteSel'].forEach((id) => $(id).classList.remove('bad')); }
+function showErr(missing) {
+  const names = { fm: 'Facility Manager', address: 'Site address', addr: 'Site address', nte: 'NTE' };
+  const ids = missing.map((x) => (x === 'address' ? 'addr' : x === 'nte' ? ($('nte').hidden ? 'nteSel' : 'nte') : x));
+  $('formErr').textContent = `Please add: ${missing.map((x) => names[x]).join(', ')}.`; $('formErr').hidden = false;
+  ids.forEach((id) => $(id).classList.add('bad'));
+  $(ids[0]).scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 function showResult(r) {
   $('result').hidden = !r;
-  renderQuestions(r ? r.questions : []);
-  if (!r) return;
+  if (!r) { renderQuestions([]); return; }
+  const blocked = !!r.blocked;
+  $('blockedMsg').hidden = !blocked; $('outWrap').hidden = blocked;
+  renderQuestions(blocked ? r.required : r.questions, blocked);
+  if (blocked) return;
+  $('subjectLine').hidden = !r.subject; $('subjectLine').textContent = r.subject ? `Subject: ${r.subject}` : '';
   $('out').textContent = r.text; $('meta').textContent = r.meta;
-  $('mail').hidden = mode !== 'worq' || !config.email;
+  $('copyLine').hidden = !r.request; $('mail').hidden = !r.subject || !config.email;
 }
 async function run() {
-  save();
+  save(); clearErr();
   const st = S(), m = mode;
   if (!st.desc.trim() && !st.images.length) { alert('Add a description or a photo first.'); return; }
+  if (m === 'worq') {
+    const miss = [];
+    if (!st.fm) miss.push('fm'); if (!st.addr.trim()) miss.push('addr'); if (!st.nte.trim()) miss.push('nte');
+    if (miss.length) { showErr(miss); return; }
+  }
   $('go').disabled = $('regen').disabled = true; const label = $('go').textContent; $('go').textContent = 'Working…';
   try {
     const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mode: m, vendor: st.vendor, description: st.desc, images: config.ai ? st.images : [], ocrText: st.texts.join('\n\n'),
-        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, answers: st.answers, address: st.addr, notes: st.notes.trim() }) });
+        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, nte: st.nte.trim(), vendorName: st.vendorName.trim(), answers: st.answers, address: st.addr, notes: st.notes.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
-    const words = j.text.trim().split(/\s+/).length;
-    st.result = { text: j.text, questions: j.questions || [], meta: `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}${j.warning ? ' · ' + j.warning : ''}` };
+    if (j.blocked) {
+      st.result = { blocked: true, required: j.required || [] };
+      if (j.missing && j.missing.length) showErr(j.missing);
+    } else {
+      const words = j.text.trim().split(/\s+/).length;
+      st.result = { text: j.text, request: j.request, subject: j.subject, questions: j.questions || [], meta: `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}` };
+    }
     if (m === mode) { showResult(st.result); $('result').scrollIntoView({ behavior: 'smooth' }); }
   } catch (e) { alert(e.message); }
   $('go').disabled = $('regen').disabled = false; $('go').textContent = label;
@@ -436,15 +495,20 @@ async function run() {
 $('go').onclick = () => { S().variant = 0; run(); };
 $('regen').onclick = () => { S().variant += 1; run(); };
 $('clear').onclick = () => { state[mode] = fresh(); load(); };
-$('copy').onclick = async () => {
-  try { await navigator.clipboard.writeText($('out').textContent); $('copy').textContent = 'Copied ✓'; }
+async function copyText(text, btn, label) {
+  try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied ✓'; }
   catch { const r = document.createRange(); r.selectNodeContents($('out')); getSelection().removeAllRanges(); getSelection().addRange(r); }
-  setTimeout(() => ($('copy').textContent = 'Copy'), 1500);
-};
+  setTimeout(() => (btn.textContent = label), 1500);
+}
+$('copy').onclick = () => copyText($('out').textContent, $('copy'), 'Copy');
+$('copyLine').onclick = () => copyText((S().result || {}).request || '', $('copyLine'), 'Copy request line');
 $('mail').onclick = () => {
-  const t = $('out').textContent;
-  location.href = `mailto:${config.email}?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(t)}`;
+  const r = S().result; if (!r) return;
+  location.href = `mailto:${config.email}?subject=${encodeURIComponent(r.subject)}&body=${encodeURIComponent(r.text.replace(/\n/g, '\r\n'))}`;
 };
+$('nte').oninput = () => { S().nte = $('nte').value; $('nte').classList.remove('bad'); };
+$('vendorName').oninput = () => { S().vendorName = $('vendorName').value; };
+$('fm').onchange = () => $('fm').classList.remove('bad');
 setMode('closure');
 </script>
 </body>

@@ -2,12 +2,12 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { generate, fallback, questionsFor } = require('./lib');
+const { handle } = require('./lib');
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5-5';
-const WORQ_EMAIL = process.env.WORQ_EMAIL || '';
+const WORQ_EMAIL = process.env.WORQ_EMAIL || 'CREWOs@bmo.com';
 const PUB = path.join(__dirname, 'public');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
 
@@ -33,10 +33,10 @@ http.createServer(async (req, res) => {
       if (!['closure', 'worq'].includes(body.mode)) return send(res, 400, { error: 'Invalid mode' });
       if (!body.description?.trim() && !body.images?.length && !body.ocrText?.trim()) return send(res, 400, { error: 'Add a description or screenshot' });
       try {
-        return send(res, 200, await generate(body, API_KEY, MODEL));
+        return send(res, 200, await handle(body, API_KEY, MODEL));
       } catch (e) {
         console.error(e.message);
-        return send(res, 200, { text: fallback(body.mode, body.description, body.vendor, body.ocrText, body.variant, { crew: body.crew, notes: body.notes, access: body.access, priority: body.priority, fm: body.fm, answers: body.answers, address: body.address }), source: 'template', questions: questionsFor(body.mode, body), warning: 'AI unavailable, used template' });
+        return send(res, 200, await handle(body, '', MODEL));
       }
     }
     if (req.method === 'GET') {

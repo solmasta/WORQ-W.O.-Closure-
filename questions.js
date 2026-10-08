@@ -7,13 +7,48 @@ const SKIP = '__skip';
 const o = (label, extra = {}) => ({ label, ...extra });
 
 const WHERE = ['Kitchen', 'Break room', 'Restroom', 'Lobby', 'Teller line', 'Vault', 'Office', 'Hallway', 'IT Room', 'Storage room', 'Mechanical room', 'Roof', 'Exterior', 'Parking lot'];
+// Common problems by item, offered when a request is too vague (e.g. just "fix wall").
+const NOUN_SYMPTOMS = [
+  [/wall|drywall|sheetrock/i, ['Hole in the wall', 'Crack in the wall', 'Water damage or stain on the wall', 'Scuffed or marked wall', 'Peeling paint on the wall', 'Damaged corner or baseboard']],
+  [/ceiling/i, ['Water-stained ceiling tile', 'Missing ceiling tile', 'Damaged ceiling tile', 'Peeling paint on the ceiling']],
+  [/door/i, ["Door sticking or won't latch", 'Door damaged or broken', 'Door lock or handle broken', 'Door closer not working']],
+  [/lock|key/i, ['Lock broken', 'Lock jammed', 'Key not working']],
+  [/window|glass/i, ['Broken window', 'Cracked glass', 'Window will not open or close', 'Window leaking']],
+  [/light|lamp|fixture/i, ['Light not working', 'Light flickering', 'Light burned out']],
+  [/floor|tile|carpet/i, ['Cracked floor tile', 'Loose floor tile', 'Stained carpet', 'Damaged flooring']],
+  [/sink|drain/i, ['Sink clogged', 'Sink leaking', 'Drain slow']],
+  [/toilet|urinal/i, ['Toilet clogged', 'Toilet running', 'Toilet leaking']],
+  [/roof|shingle/i, ['Roof leaking', 'Loose shingles', 'Missing shingles']],
+  [/heat|hvac|\bac\b|air/i, ['Not heating', 'Not cooling', 'Excessive heat in the space']],
+  [/paint/i, ['Peeling paint', 'Scuffed paint', 'Stained paint']],
+];
+const GENERIC_SYMPTOMS = ['Broken or damaged', 'Not working', 'Leaking', 'Loose', 'Clogged'];
+const symptomsFor = (text) => (NOUN_SYMPTOMS.find(([re]) => re.test(text || '')) || [null, GENERIC_SYMPTOMS])[1];
+
+const WHY_OPTIONS = ['Safety hazard', 'Equipment is down or not working', 'Customer or employee impact', 'Risk of water damage', 'Appearance / unprofessional', 'Preventive or compliance'];
+
 const WHERE_Q = {
-  id: 'where', mode: 'both', q: 'Where in the building is it?', type: 'choice',
-  options: WHERE.map((w) => o(w, { worq: `Location: ${w}.`, done: `Work area: ${/^[A-Z]{2}/.test(w) ? w : w.toLowerCase()}.` })),
+  id: 'where', mode: 'both', required: true, q: 'Where in the building is it? Pick one or type it.', type: 'both',
+  fmt: (v) => ({ done: `Work area: ${v.replace(/[.\s]+$/, '')}.` }),
+  options: WHERE.map((w) => o(w, { done: `Work area: ${/^[A-Z]{2}/.test(w) ? w : w.toLowerCase()}.` })),
 };
-const WHAT_Q = {
-  id: 'what', mode: 'both', q: "What exactly needs attention? Name the item and what's wrong with it.", type: 'text',
-  fmt: (v) => ({ worq: `Issue: ${v.replace(/[.\s]+$/, '')}.`, done: `Issue addressed: ${v.replace(/[.\s]+$/, '')}.` }),
+const whatQ = (text) => ({
+  id: 'what', mode: 'both', required: true, q: "That's too general. What exactly is wrong? Pick one or describe it.", type: 'both',
+  options: symptomsFor(text).map((l) => o(l)),
+  fmt: () => ({}),
+});
+const HOW_Q = {
+  id: 'how', mode: 'closure', required: true, q: 'What did you do to fix it? Describe the work.', type: 'text',
+  fmt: (v) => ({ done: `Work performed: ${v.replace(/[.\s]+$/, '')}.` }),
+};
+const WHY_Q = {
+  id: 'why', mode: 'both', required: true, q: 'Why does this need to be done?', type: 'both',
+  options: WHY_OPTIONS.map((l) => o(l, { worq: `Reason: ${l.toLowerCase()}.`, done: `Reason for the work: ${l.toLowerCase()}.` })),
+  fmt: (v) => ({ worq: `Reason: ${v.replace(/[.\s]+$/, '')}.`, done: `Reason for the work: ${v.replace(/[.\s]+$/, '')}.` }),
+};
+const MORE_Q = {
+  id: 'more', mode: 'both', required: true, q: 'Add a little more description (what, where and how). It needs at least 10 words in total.', type: 'text',
+  fmt: (v) => ({ worq: `Details: ${v.replace(/[.\s]+$/, '')}.`, done: `Additional detail: ${v.replace(/[.\s]+$/, '')}.` }),
 };
 const PARTS_Q = {
   id: 'parts', mode: 'closure', q: 'Any parts or materials used? (optional)', type: 'text',
@@ -104,17 +139,26 @@ const BY_SCENARIO = {
 
 function list(mode, ctx) {
   const q = [];
-  if (!ctx.hasLocation) q.push(WHERE_Q);
-  if (!ctx.matched) q.push(WHAT_Q);
+  if (!ctx.scenario && !ctx.preventive) {
+    if (!ctx.verbSpecific && !ctx.whatAnswered) q.push(whatQ(ctx.text));   // e.g. just "fix wall": ask what is actually wrong
+    else {
+      if (mode === 'closure' && !ctx.verbSpecific && ctx.userWords < 10) q.push(HOW_Q);
+      if (mode === 'worq' && ctx.userWords < 10) q.push(MORE_Q);
+      q.push(WHY_Q);
+    }
+  }
+  const needArea = !ctx.hasLocation && !(mode === 'closure' && ctx.hasAddress);
+  if (needArea) q.push(WHERE_Q);
   q.push(...(BY_SCENARIO[ctx.sid] || []));
   if (mode === 'closure') q.push(PARTS_Q, FOLLOW_Q);
   return q.filter((x) => x.mode === 'both' || x.mode === mode);
 }
 
-// The next few questions that have not been answered or skipped yet.
+// Questions that have not been answered yet. `required` ones must be answered before any text is produced.
 function pending(mode, ctx, answers = {}) {
-  return list(mode, ctx).filter((q) => !(q.id in answers)).slice(0, 3)
-    .map((q) => ({ id: q.id, q: q.q, type: q.type, options: (q.options || []).map((x) => x.label) }));
+  const open = list(mode, ctx).filter((q) => !(q.id in answers));
+  const pub = (q) => ({ id: q.id, q: q.q, type: q.type, required: !!q.required, options: (q.options || []).map((x) => x.label) });
+  return { required: open.filter((q) => q.required).slice(0, 3).map(pub), optional: open.filter((q) => !q.required).slice(0, 3).map(pub) };
 }
 
 // Turn the answers into sentences for the WORQ / closing comment.
@@ -123,7 +167,7 @@ function apply(mode, ctx, answers = {}) {
   for (const q of list(mode, ctx)) {
     const v = answers[q.id];
     if (v == null || v === '' || v === SKIP) continue;
-    if (q.type === 'text') {
+    if (q.type === 'text' || ((q.type === 'both') && !(q.options || []).some((x) => x.label === v))) {
       const r = q.fmt(String(v));
       if (r.worq) out.worq.push(r.worq);
       if (r.done) out.done.push(r.done);
@@ -139,4 +183,4 @@ function apply(mode, ctx, answers = {}) {
   return out;
 }
 
-module.exports = { pending, apply, SKIP };
+module.exports = { pending, apply, SKIP, symptomsFor };

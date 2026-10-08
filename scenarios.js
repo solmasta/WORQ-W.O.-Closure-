@@ -123,7 +123,46 @@ const EXTRA = {
   blinds: { found: 'Inspection found damaged blind components.' },
   cabinet: { found: 'Inspection found loose or damaged components.' },
 };
-for (const sc of SCENARIOS) Object.assign(sc, EXTRA[sc.id] || {});
+// What the work involves (for the WORQ request) and why it matters.
+const SCOPE = {
+  'toilet-clog': ['Clear the blockage, flush to confirm full flow, and check the base and supply line for leaks.', 'The fixture is out of service and cannot be used.'],
+  'toilet-run': ['Inspect the tank, repair or replace the flapper and fill valve, and confirm the toilet shuts off properly.', 'Continuous running wastes water and raises utility costs.'],
+  'floor-drain': ['Clear the obstruction, flush the line and confirm proper drainage.', 'The drain is backing up, which can cause standing water and odors.'],
+  disposal: ['Free the jam, clear the debris and confirm the unit runs and drains properly.', 'The disposal is out of service.'],
+  'sink-clog': ['Clear the blockage in the drain line, flush it, and confirm proper drainage with no leaks at the trap.', 'The sink is unusable until the drain is cleared.'],
+  'faucet-leak': ['Replace the worn washer or cartridge, tighten the connections and confirm the leak is stopped.', 'The leak wastes water and can damage the cabinet or floor.'],
+  'pipe-leak': ['Isolate the water supply, repair the leaking section and confirm no leaks remain.', 'Water loss can cause property damage and mold if not addressed.'],
+  'tile-water': ['Remove the stained tile, locate and address the moisture source, and install a new tile.', 'The stained tile points to a moisture problem and looks unprofessional to customers.'],
+  'roof-leak': ['Locate the point of water entry, repair and seal it, and inspect the surrounding roof.', 'Water is entering the building, which can damage the interior and lead to mold.'],
+  shingles: ['Re-secure the loose shingles, replace any missing ones and seal the affected area.', 'Loose or missing shingles can allow water into the building.'],
+  gutter: ['Remove the debris, flush the gutters and downspouts and confirm proper drainage.', 'Clogged gutters can overflow and damage the roof edge and foundation.'],
+  wallpack: ['Investigate the cause (failed lamps, photocells or drivers), repair or replace the failed components and confirm the lights operate at dusk.', 'The exterior is not properly lit, which is a safety and security concern.'],
+  light: ['Investigate the cause, replace the failed lamp or driver and confirm the fixture works.', 'The area is under-lit, which affects safety and visibility.'],
+  outlet: ['Test the circuit, repair or replace the faulty device and confirm power is restored safely.', 'The outlet is unusable and may be a safety hazard.'],
+  lock: ['Inspect the lock, clean and repair or replace the failed components, and test it with the key.', 'A lock that does not work properly affects security.'],
+  door: ['Adjust or repair the hinges and latch, and confirm the door opens, closes and latches properly.', 'The door does not operate properly, which affects security and access.'],
+  'excess-heat': ['Check the cooling equipment, airflow and thermostat settings, correct the cause and monitor the temperature.', 'Excess heat can damage equipment and make the space uncomfortable or unsafe.'],
+  heat: ['Diagnose the heating fault, repair it and confirm the space reaches the setpoint.', 'Loss of heat affects comfort and can damage the building in cold weather.'],
+  cooling: ['Diagnose the cooling fault, repair it and confirm the space cools to the setpoint.', 'Loss of cooling affects comfort and can damage equipment.'],
+  hotwater: ['Diagnose the heating element or burner, repair it and confirm hot water at the fixtures.', 'There is no hot water for staff or customers.'],
+  fan: ['Clean or repair the fan and confirm quiet, proper airflow.', 'Poor ventilation affects air quality and comfort.'],
+  hole: ['Cut out the damaged section, install new drywall, tape, mud and sand it smooth, then prime and paint to match.', 'The damaged wall looks unprofessional and can get worse if left.'],
+  'paint-peel': ['Scrape off the loose paint, sand and prime the surface, and repaint to match.', 'Peeling paint looks unprofessional and can expose the surface to moisture.'],
+  floor: ['Remove the damaged section, prepare the surface and install new material so the floor is level and safe.', 'Damaged flooring is a trip hazard.'],
+  window: ['Secure the area, remove any broken glass and repair or replace the damaged component.', 'The damaged window affects security and weather protection.'],
+  pothole: ['Clean out the damaged pavement, fill it with asphalt patch and compact it level.', 'The pothole is a hazard to vehicles and pedestrians.'],
+  sidewalk: ['Repair the damaged section to remove the trip hazard.', 'The damage is a trip hazard for customers and staff.'],
+  fence: ['Re-anchor or replace the damaged components and confirm it is secure.', 'The damaged fence affects security and safety.'],
+  sign: ['Repair or replace the damaged hardware or lighting and confirm the sign is secure and visible.', 'The sign is not visible to customers.'],
+  mold: ['Clean and treat the affected area, then identify and report the moisture source.', 'Mold is a health concern and points to a moisture problem.'],
+  smoke: ['Replace the battery or the detector and test the alarm.', 'A faulty detector is a life safety concern.'],
+  blinds: ['Repair or replace the damaged slats, cords or brackets.', 'Damaged blinds affect privacy and appearance.'],
+  cabinet: ['Tighten or replace the loose hardware and repair the damaged part.', 'The damaged unit is unsafe and cannot be used properly.'],
+};
+for (const sc of SCENARIOS) {
+  Object.assign(sc, EXTRA[sc.id] || {});
+  if (SCOPE[sc.id]) { sc.scope = SCOPE[sc.id][0]; sc.why = SCOPE[sc.id][1]; }
+}
 
 const clean = (s) => s.replace(/[.\s]+$/, '').replace(/\s+/g, ' ').trim();
 
@@ -166,9 +205,9 @@ function matchScenario(text) {
   const core = parts.join(' ').split(' ').filter((w) => (seen.has(w.toLowerCase()) ? false : seen.add(w.toLowerCase()))).join(' ');
   const subject = core + (suffix ? ` ${suffix}` : '');
   const broken = /not work|not heat|not cool|no heat|no cool|won'?t work|inoperab|\bout\b|\bdead\b|burn|no power|stopped working/i.test(t);
-  return { scenario: sc, subject: clean(subject), core: clean(core), suffix, plural: /s$/i.test(objWord), broken };
+  return { scenario: sc, subject: clean(subject), core: clean(core), suffix, place, plural: /s$/i.test(objWord), broken };
 }
 
-const hasLocation = (text) => LOCATIONS.test(text || '') || PREP_TAIL.test(text || '');
+const hasLocation = (text) => LOCATIONS.test(text || '');
 
 module.exports = { matchScenario, SCENARIOS, hasLocation };

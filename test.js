@@ -46,14 +46,48 @@ assert.ok(fallback('worq', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Dave Fle
 assert.ok(fallback('closure', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Brianna Brungardt' }).includes('Contacted Facility Manager Brianna Brungardt and gained access as required.'));
 assert.ok(!/Contacted Facility Manager and/.test(fallback('closure', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Alan Macejak', access: 'fm' })));
 assert.ok(!/Facility Manager/.test(fallback('closure', 'sink clogged kitchen', 'mts')));
-const { questionsFor } = require('./lib');
-assert.ok(questionsFor('worq', { description: 'clogged sink' }).some((q) => q.id === 'where'));
-assert.ok(!questionsFor('worq', { description: 'clogged sink in the kitchen' }).some((q) => q.id === 'where'));
-assert.ok(questionsFor('closure', { description: 'clogged sink in the kitchen' }).some((q) => q.id === 'method'));
-assert.ok(questionsFor('worq', { description: 'zzz widget' }).some((q) => q.id === 'what'));
-assert.ok(!questionsFor('closure', { description: 'clogged sink in the kitchen', answers: { method: '__skip' } }).some((q) => q.id === 'method'));
+const { questionsFor, handle, composeWorq } = require('./lib');
+const all = (r) => [...r.required, ...r.optional].map((q) => q.id);
+assert.ok(all(questionsFor('worq', { description: 'clogged sink' })).includes('where'));
+assert.ok(!all(questionsFor('worq', { description: 'clogged sink in the kitchen' })).includes('where'));
+assert.ok(all(questionsFor('closure', { description: 'clogged sink in the kitchen' })).includes('method'));
+assert.ok(!all(questionsFor('closure', { description: 'clogged sink in the kitchen', answers: { method: '__skip' } })).includes('method'));
 assert.ok(/plunger/i.test(fallback('closure', 'clogged sink in the kitchen', 'mts', '', 0, { answers: { method: 'Plunger' } })));
 assert.ok(!/All work order tasks completed/.test(fallback('closure', 'clogged sink in the kitchen', 'mts', '', 0, { answers: { followup: 'Parts on order' } })));
-assert.ok(fallback('worq', 'clogged sink in the kitchen', 'mts', '', 0, { address: '5401 S Wentworth Ave, Chicago, IL 60609' }).includes('Address: 5401 S Wentworth Ave, Chicago, IL 60609.'));
 assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { count: '2-3' } }).includes('Approximately 2-3 are affected.'));
-console.log('ok');
+
+(async () => {
+  const base = { vendor: 'mts', fm: 'Dave Fleming', address: '5401 S Wentworth Ave, Chicago, IL 60609', nte: '$500' };
+  // 1) generic requests are blocked and the tech is asked what is actually wrong
+  for (const mode of ['worq', 'closure']) {
+    for (const d of ['fix wall', 'repair door', 'fix light', 'fix desk']) {
+      const r = await handle({ mode, description: d, ...base }, '', '');
+      assert.ok(r.blocked && r.required.some((q) => q.id === 'what'), `${mode}: "${d}" should be blocked`);
+      assert.strictEqual(r.text, '');
+    }
+  }
+  // 2) answering "what" produces a specific, described request (10+ words in the description)
+  const w = await handle({ mode: 'worq', description: 'fix wall', answers: { what: 'Hole in the wall', where: 'Lobby' }, ...base }, '', '');
+  assert.ok(!w.blocked && /patch hole in the wall/.test(w.request), w.request);
+  // the exact layout the technicians must send
+  assert.ok(w.text.startsWith('WORQ\n• Location: 5401 S Wentworth Ave, Chicago, IL 60609 (Lobby)\n• FM: Dave Fleming\n• Priority (Rush, Normal): Normal\n• WO Description: WORQ MTS request to patch hole in the wall.'), w.text);
+  assert.ok(/Cut out the damaged section/.test(w.text) && /\n• NTE: \$500\n• Vendor: MTS$/.test(w.text), w.text);
+  assert.ok(w.text.split('• WO Description: ')[1].split('\n')[0].split(/\s+/).length >= 10);
+  const r = await handle({ mode: 'worq', description: 'clogged sink in the kitchen', ...base, vendor: 'vendor', vendorName: 'ABC Plumbing', priority: 'rush' }, '', '');
+  assert.ok(/• Priority \(Rush, Normal\): Rush/.test(r.text) && /• Vendor: ABC Plumbing$/.test(r.text), r.text);
+  const c = await handle({ mode: 'closure', description: 'fix wall', answers: { what: 'Hole in the wall', where: 'Lobby' }, fm: 'Dave Fleming' }, '', '');
+  assert.ok(!c.blocked && /hole/i.test(c.text) && /installed new drywall/.test(c.text) && /Work area: lobby/.test(c.text) && /Dave Fleming/.test(c.text) && c.text.split(/\s+/).length >= 10, c.text);
+  // 3) WORQ requires facility manager, address and NTE
+  const m = await handle({ mode: 'worq', description: 'clogged sink in the kitchen', vendor: 'mts' }, '', '');
+  assert.deepStrictEqual(m.missing, ['fm', 'address', 'nte']);
+  // 4) their real examples
+  const e1 = composeWorq({ ...base, description: 'exterior wall pack lights not working' });
+  assert.ok(e1.request.startsWith('WORQ MTS request to investigate and repair exterior wall pack lights that are not working. This is a 2 man job.'));
+  const e2 = composeWorq({ ...base, description: 'excessive heat in the IT Room' });
+  assert.ok(e2.request.startsWith('WORQ MTS request to investigate and repair issues with excessive heat in the IT Room.'));
+  assert.ok(e1.body.split('\n').slice(0, 1)[0] === 'WORQ' && e1.body.split('\n').length === 7);
+  // 5) an unrecognized item needs why + more detail before anything is produced
+  const u = await handle({ mode: 'worq', description: 'replace vault gasket', ...base, answers: {} }, '', '');
+  assert.ok(u.blocked && u.required.some((q) => q.id === 'more') && u.required.some((q) => q.id === 'why'));
+  console.log('ok');
+})().catch((e) => { console.error(e); process.exit(1); });

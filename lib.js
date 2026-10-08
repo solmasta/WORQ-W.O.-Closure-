@@ -21,7 +21,7 @@ function buildPrompt(mode, description, vendor, ocrText = '', variant = 0, opts 
   const accessLine = opts.access && ACCESS_TEXT[opts.access] ? `\nAccess/equipment: ${ACCESS_TEXT[opts.access].worq}` : '';
   const prioLine = PRIORITY_TEXT[opts.priority] ? `\nPriority: ${PRIORITY_TEXT[opts.priority]}` : '';
   const fmLineP = opts.fm ? `\nFacility Manager: ${opts.fm} (mention them by name${opts.access === 'fm' ? '; access must be scheduled through them' : ''}).` : '';
-  const facts = opts.answers ? Q.apply(mode, contextFor(description, ocrText), opts.answers) : null;
+  const facts = opts.answers ? Q.apply(mode, contextFor(description, ocrText, opts.answers, opts.address), opts.answers) : null;
   const factLines = facts && (facts.worq.length + facts.done.length) ? `\nConfirmed facts from the technician (include them): ${[...facts.worq, ...facts.done].join(' ')}${facts.steps ? ' Work performed: ' + facts.steps : ''}${facts.incomplete ? ' The work is NOT fully complete, so do not say all tasks were completed.' : ''}` : '';
   const addrLine = opts.address ? `\nSite address: ${opts.address}` : '';
   const notesLine = opts.notes && opts.notes.trim() ? `\nExtra details from the technician (include them): ${opts.notes.trim()}` : '';
@@ -160,7 +160,7 @@ const fmWorq = (opts, accessText) => {
   if (opts.access === 'fm') return `Contact Facility Manager ${fm} to schedule access.`;
   return [accessText, `Facility Manager: ${fm}.`].filter(Boolean).join(' ');
 };
-const PRIORITY_TEXT = { urgent: 'This is an urgent request.', safety: 'This is a safety concern.' };
+const PRIORITY_TEXT = { rush: 'This is a rush request.' };
 const crewWord = (n) => ({ 1: '1 man', 2: '2 man', 3: '3 man', 4: '4 man' }[n] || '');
 
 // The WORQ request: "WORQ MTS request to investigate and repair <problem> <condition>. <crew / access / notes>"
@@ -237,21 +237,40 @@ function templateClosure(description, ocrText, variant = 0, opts = {}) {
   return parts.join(' ');
 }
 
-// What the app understood about the request (used to decide which follow-up questions to ask).
-function contextFor(description, ocrText) {
+// The description to use: the tech's text, refined by their answer to "what exactly is wrong?"
+const PREP_END = /\b(in|at|by|near|on|inside|outside)\s+(?:the\s+)?[\w'/ -]+$/i;
+function effectiveDesc(description, answers = {}) {
+  const base = (description || '').trim();
+  const w = answers.what && answers.what !== Q.SKIP ? String(answers.what).trim() : '';
+  if (!w || base.toLowerCase().includes(w.toLowerCase())) return base;   // nothing to add, or already applied
+  if (matchScenario(w)) { const loc = PREP_END.exec(base); return loc && !hasLocation(w) ? `${w} ${loc[0]}` : w; }
+  return `${base} ${w}`.trim();
+}
+
+// What the app understood about the request (decides which questions are needed).
+function contextFor(description, ocrText, answers = {}, address = '', orig = description) {
   const w = parseWorkOrder(ocrText);
   const text = (description || '').trim() || requestSegment(w.desc);
   const sm = matchScenario(text);
   const task = extractTask(description, ocrText);
-  return { sid: sm ? sm.scenario.id : '', matched: !!(sm || task.verb || w.preventive || w.equipment), hasLocation: w.preventive || hasLocation(text) };
+  const verbSpecific = !!(task.verb && task.verb.past !== 'repaired');
+  const extra = ['how', 'more', 'why'].map((k) => (answers[k] && answers[k] !== Q.SKIP ? String(answers[k]) : '')).join(' ');
+  return {
+    sid: sm ? sm.scenario.id : '', scenario: !!sm, verbSpecific, preventive: !!w.preventive,
+    whatAnswered: !!(answers.what && answers.what !== Q.SKIP),
+    hasLocation: !!(w.preventive || hasLocation(text)),
+    hasAddress: !!(address || '').trim(),
+    userWords: countWords(text) + countWords(extra), text: (orig || text),
+  };
 }
 function questionsFor(mode, body) {
-  return Q.pending(mode, contextFor(body.description, body.ocrText), body.answers || {});
+  const answers = body.answers || {};
+  return Q.pending(mode, contextFor(effectiveDesc(body.description, answers), body.ocrText, answers, body.address, body.description), answers);
 }
 
 // Used when no API key is configured, or the API call fails.
 function fallback(mode, description, vendor, ocrText = '', variant = 0, opts = {}) {
-  opts = { ...opts, ap: Q.apply(mode, contextFor(description, ocrText), opts.answers || {}) };
+  opts = { ...opts, ap: Q.apply(mode, contextFor(description, ocrText, opts.answers || {}, opts.address), opts.answers || {}) };
   const w = parseWorkOrder(ocrText);
   const sm = mode === 'worq' ? matchScenario((description || '').trim() || requestSegment(w.desc)) : null;
   const t = mode === 'worq' ? extractTask(description, ocrText) : null;
@@ -279,7 +298,7 @@ function enforce(mode, text, description, vendor, ocrText) {
 }
 
 async function generate({ mode, description, vendor, images = [], ocrText = '', variant = 0, crew = '', notes = '', access = '', priority = '', fm = '', answers = {}, address = '' }, apiKey, model) {
-  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant, { crew, notes, access, priority, fm, answers, address }), source: 'template', questions: questionsFor(mode, { description, ocrText, answers }) };
+  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant, { crew, notes, access, priority, fm, answers, address }), source: 'template' };
   const content = images.slice(0, 5).map((src) => {
     const m = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(src);
     return m && { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } };
@@ -294,7 +313,85 @@ async function generate({ mode, description, vendor, images = [], ocrText = '', 
   if (!res.ok) throw new Error(`Anthropic API ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
   const text = data.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
-  return { text: enforce(mode, text, description, vendor, ocrText), source: 'ai', questions: questionsFor(mode, { description, ocrText, answers }) };
+  return { text: enforce(mode, text, description, vendor, ocrText), source: 'ai' };
 }
 
-module.exports = { questionsFor, contextFor, worqRequest, extractTask, parseWorkOrder, templateClosure, generate, fallback, enforce, countWords, buildPrompt, MIN_WORDS };
+const cap1 = (x) => (x ? x.charAt(0).toUpperCase() + x.slice(1) : x);
+const wordsIn = (x) => countWords(x || '');
+
+// The complete WORQ email: request line, description, and the details block.
+function composeWorq(b, ai = null) {
+  const answers = b.answers || {};
+  const eff = effectiveDesc(b.description, answers);
+  const w = parseWorkOrder(b.ocrText);
+  const text = eff.trim() || requestSegment(w.desc);
+  const sm = matchScenario(text);
+  const ap = Q.apply('worq', contextFor(eff, b.ocrText, answers, b.address, b.description), answers);
+  const who = b.vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
+  const nCrew = Number(b.crew) || 0;
+  let core, crew = nCrew, accessTxt = b.access && ACCESS_TEXT[b.access] ? ACCESS_TEXT[b.access].worq : '', area = '', descr;
+  if (sm) {
+    const sc = sm.scenario;
+    const hasAdj = /^(burned-out|dead|broken)\b/.test(sm.core);
+    const cond = sc.cond && sm.broken && !hasAdj ? (sm.plural ? ' that are not working' : ' that is not working') : '';
+    const verb = cond && sc.imp === 'replace' ? 'repair' : sc.imp;
+    core = sc.issues ? `investigate and repair issues with ${sm.subject}` : `${sc.invest ? 'investigate and ' : ''}${verb} ${sm.core}${cond}${sm.suffix ? ' ' + sm.suffix : ''}`;
+    crew = nCrew || sc.crew || 0;
+    accessTxt = accessTxt || sc.access || '';
+    area = answers.where && answers.where !== Q.SKIP ? answers.where : sm.place || (hasLocation(sm.suffix) ? sm.suffix.replace(/^\w+\s+the\s+/i, '') : '');
+    descr = [sc.scope, sc.why, ...ap.worq].join(' ');
+  } else {
+    const t = extractTask(eff, b.ocrText);
+    const imperative = t.verb ? t.text.charAt(0).toLowerCase() + t.text.slice(1).replace(/^hung\b/i, 'hang') : `investigate and repair ${text.charAt(0).toLowerCase() + text.slice(1)}`;
+    core = imperative.replace(/[.\s]+$/, '');
+    area = answers.where && answers.where !== Q.SKIP ? answers.where : '';
+    descr = [sentence(eff), ...ap.worq].join(' ');
+  }
+  area = cap1((area || '').trim());
+  let request = `WORQ ${who} ${core}.${crew > 1 || nCrew ? ` This is a ${crewWord(crew)} job.` : ''}`;
+  if (ai && /^WORQ\b/.test(ai.request || '')) request = ai.request.trim();
+  if (ai && wordsIn(ai.description) >= 10) descr = ai.description.trim();
+  // Layout the technicians are required to send:  WORQ / Location / FM / Priority (Rush, Normal) / WO Description / NTE / Vendor
+  const location = [b.address, area ? `(${area})` : ''].filter(Boolean).join(' ');
+  const vendor = b.vendor === 'vendor' ? ((b.vendorName || '').trim() || 'Third party vendor (to be assigned)') : 'MTS';
+  const woDescription = [request, descr, accessTxt, sentence(b.notes)].filter(Boolean).join(' ');
+  const title = cap1(core).slice(0, 80);
+  const street = (b.address || '').split(',')[0];
+  const subject = `WORQ${street ? ' – ' + street : ''} – ${title}`;
+  const body = ['WORQ', `• Location: ${location}`, `• FM: ${b.fm || ''}`, `• Priority (Rush, Normal): ${b.priority === 'rush' ? 'Rush' : 'Normal'}`,
+    `• WO Description: ${woDescription}`, `• NTE: ${b.nte || ''}`, `• Vendor: ${vendor}`].join('\n');
+  return { request, description: descr, subject, body };
+}
+
+// Entry point for the API: checks what is missing, then builds the WORQ email or closing comment.
+async function handle(body, apiKey, model) {
+  const mode = body.mode === 'worq' ? 'worq' : 'closure';
+  const answers = body.answers || {};
+  const qs = questionsFor(mode, body);
+  const missing = [];
+  if (mode === 'worq') {
+    if (!(body.fm || '').trim()) missing.push('fm');
+    if (!(body.address || '').trim()) missing.push('address');
+    if (!(body.nte || '').trim()) missing.push('nte');
+  }
+  if (qs.required.length || missing.length) return { blocked: true, missing, required: qs.required, questions: [], text: '' };
+  const eff = effectiveDesc(body.description, answers);
+  const b = { ...body, description: eff, answers };
+  if (mode === 'worq') {
+    let ai = null, source = 'template';
+    if (apiKey) {
+      try {
+        const r = await generate({ ...b, mode: 'worq' }, apiKey, model);
+        const lines = r.text.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+        ai = { request: lines[0], description: lines.slice(1).join(' ').replace(/^Description:\s*/i, '') }; source = 'ai';
+      } catch (e) { console.error(e.message); }
+    }
+    const e = composeWorq({ ...body, answers }, ai);
+    return { text: e.body, request: e.request, subject: e.subject, source, questions: qs.optional };
+  }
+  let res;
+  try { res = await generate(b, apiKey, model); } catch (e) { console.error(e.message); res = { text: fallback('closure', eff, b.vendor, b.ocrText, b.variant, b), source: 'template' }; }
+  return { text: res.text, source: res.source, questions: qs.optional };
+}
+
+module.exports = { handle, composeWorq, effectiveDesc, questionsFor, contextFor, worqRequest, extractTask, parseWorkOrder, templateClosure, generate, fallback, enforce, countWords, buildPrompt, MIN_WORDS };

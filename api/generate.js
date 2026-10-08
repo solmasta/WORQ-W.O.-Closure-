@@ -1,5 +1,5 @@
 'use strict';
-const { generate, fallback, questionsFor } = require('../lib');
+const { handle } = require('../lib');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -8,10 +8,11 @@ module.exports = async (req, res) => {
   if (!body.description?.trim() && !body.images?.length && !body.ocrText?.trim()) {
     return res.status(400).json({ error: 'Add a description or screenshot' });
   }
+  const key = process.env.ANTHROPIC_API_KEY, model = process.env.CLAUDE_MODEL || 'claude-sonnet-5-5';
   try {
-    res.status(200).json(await generate(body, process.env.ANTHROPIC_API_KEY, process.env.CLAUDE_MODEL || 'claude-sonnet-5-5'));
+    res.status(200).json(await handle(body, key, model));
   } catch (e) {
     console.error(e.message);
-    res.status(200).json({ text: fallback(body.mode, body.description, body.vendor, body.ocrText, body.variant, { crew: body.crew, notes: body.notes, access: body.access, priority: body.priority, fm: body.fm, answers: body.answers, address: body.address }), source: 'template', questions: questionsFor(body.mode, body), warning: 'AI unavailable, used template' });
+    res.status(200).json(await handle(body, '', model));
   }
 };
