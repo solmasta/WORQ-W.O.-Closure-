@@ -76,7 +76,7 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
-let mode = 'closure', vendor = 'mts', images = [], texts = [], config = { email: '' };
+let variant = 0, mode = 'closure', vendor = 'mts', images = [], texts = [], config = { email: '' };
 fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
 
 function setMode(m) {
@@ -186,7 +186,7 @@ async function run() {
   if (!description.trim() && !images.length) { alert('Add a description or a screenshot first.'); return; }
   $('go').disabled = $('regen').disabled = true; $('go').textContent = 'Generating…';
   try {
-    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images: config.ai ? images : [], ocrText: texts.join('\n\n') }) });
+    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images: config.ai ? images : [], ocrText: texts.join('\n\n'), variant }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     $('out').textContent = j.text;
@@ -198,7 +198,8 @@ async function run() {
   } catch (e) { alert(e.message); }
   $('go').disabled = $('regen').disabled = false; $('go').textContent = 'Generate';
 }
-$('go').onclick = $('regen').onclick = run;
+$('go').onclick = () => { variant = 0; run(); };
+$('regen').onclick = () => { variant += 1; run(); };
 $('copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('out').textContent); $('copy').textContent = 'Copied ✓'; }
   catch { const r = document.createRange(); r.selectNodeContents($('out')); getSelection().removeAllRanges(); getSelection().addRange(r); }

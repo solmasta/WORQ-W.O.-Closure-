@@ -25,4 +25,15 @@ const roof = templateClosure('', 'Work Description Repair loose shingles on roof
 assert.ok(/shingles/i.test(roof) && /sealed/.test(roof));
 assert.ok(/compressor/i.test(templateClosure('repair compressor', '')));
 assert.ok(countWords(templateClosure('', '')) >= 10);
+const { matchScenario } = require('./scenarios');
+const sub = (x) => { const m = matchScenario(x); return m && `${m.scenario.imp} ${m.subject}`; };
+assert.strictEqual(sub('sink clogged kitchen'), 'clear clogged kitchen sink');
+assert.strictEqual(sub('unclog sink in break room'), 'clear clogged sink in the break room');
+assert.strictEqual(sub('no heat in teller area'), 'repair heating system in the teller area');
+assert.strictEqual(sub('loose shingles'), 'repair loose shingles');
+assert.strictEqual(sub('light out in lobby'), 'replace burned-out light in the lobby');
+assert.strictEqual(fallback('worq', 'sink clogged kitchen', 'mts'), 'WORQ MTS request to clear clogged kitchen sink');
+assert.ok(/drain snake/.test(fallback('closure', 'sink clogged kitchen', 'mts')));
+assert.notStrictEqual(fallback('closure', 'sink clogged kitchen', 'mts', '', 0), fallback('closure', 'sink clogged kitchen', 'mts', '', 1));
+assert.ok(!/source of the leak/i.test(fallback('closure', 'sink clogged kitchen', 'mts')));
 console.log('ok');

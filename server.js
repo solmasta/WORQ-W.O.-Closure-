@@ -36,7 +36,7 @@ http.createServer(async (req, res) => {
         return send(res, 200, await generate(body, API_KEY, MODEL));
       } catch (e) {
         console.error(e.message);
-        return send(res, 200, { text: fallback(body.mode, body.description, body.vendor, body.ocrText), source: 'template', warning: 'AI unavailable, used template' });
+        return send(res, 200, { text: fallback(body.mode, body.description, body.vendor, body.ocrText, body.variant), source: 'template', warning: 'AI unavailable, used template' });
       }
     }
     if (req.method === 'GET') {

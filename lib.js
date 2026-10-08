@@ -1,4 +1,5 @@
 'use strict';
+const { matchScenario } = require('./scenarios');
 
 const MIN_WORDS = 10;
 
@@ -14,7 +15,7 @@ Output ONLY the requested text, with no quotes, labels or commentary.`;
 
 const ocrBlock = (t) => (t && t.trim() ? `\nText read from the work order screenshot (may contain OCR errors):\n${t.trim().slice(0, 3000)}` : '');
 
-function buildPrompt(mode, description, vendor, ocrText = '') {
+function buildPrompt(mode, description, vendor, ocrText = '', variant = 0) {
   if (mode === 'worq') {
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
     return `Write ONE line that will be the start of an email requesting a work order.
@@ -23,8 +24,8 @@ Maximum 15 words. No period at the end.
 Issue details: ${description || '(see screenshot)'}${ocrBlock(ocrText)}`;
   }
   return `Write a work order closure comment describing the repair that was completed so the work order can be closed.
-Rules: past tense, plain professional language, ${MIN_WORDS} words or more. Use 3-5 short sentences: what work was completed, any access/contact steps required, what was inspected or repaired, the result, and that all tasks are complete.
-Match the style of this example (a quarterly preventive maintenance on a ceiling heater):
+Rules: past tense, plain professional language, ${MIN_WORDS} words or more. Use 3-5 short sentences with realistic, specific technician detail for this kind of problem (e.g. a clogged sink: used a drain snake, flushed the line, checked the trap for leaks; a running toilet: replaced the flapper and fill valve): what work was completed, any access/contact steps required, what was inspected or repaired, the result, and that all tasks are complete.
+${variant ? `This is regeneration #${variant}: use noticeably different wording and sentence structure than a standard version.\n` : ''}Match the style of this example (a quarterly preventive maintenance on a ceiling heater):
 "${EXAMPLE}"
 Repair details: ${description || '(see screenshot)'}${ocrBlock(ocrText)}`;
 }
@@ -86,7 +87,7 @@ const KNOWLEDGE = [
 
 // Action verbs: what was done, in past tense, with logical steps that fit that kind of action.
 const VERBS = [
-  { re: /^(paint|repaint|touch[- ]?up)\b/i, past: 'painted', steps: (o) => `Prepped surface, applied paint to ${o} for an even finish and cleaned up the work area.` },
+  { re: /^(paint|repaint|touch[- ]?up)\b/i, past: 'painted', steps: (o) => `Prepped surface and applied paint to ${o} for an even finish.` },
   { re: /^(replace|swap|change)\b/i, past: 'replaced', steps: (o) => `Removed the old ${o.replace(/^the /, '').replace(/^(damaged|broken|old|bad|cracked|stained|missing|worn|faulty)\s+/i, '')}, installed a new one and tested for proper operation.` },
   { re: /^(install|mount|hang|hung|assemble|put up|add)\b/i, past: 'installed', steps: (o) => `Installed ${o}, secured it in place and checked that it is level and working properly.` },
   { re: /^(clean|wash|sweep|wipe|pressure wash|power wash|sanitize|disinfect)\b/i, past: 'cleaned', steps: (o) => `Cleaned ${o} thoroughly, removed debris and left the area neat.` },
@@ -131,10 +132,30 @@ function requestSegment(desc) {
   return (segs[segs.length - 1] || '').replace(/[.\s]+$/, '').slice(0, 90);
 }
 
-function templateClosure(description, ocrText) {
+const VERIFY = [
+  'Cleaned up the work area and left it safe for normal use.',
+  'Left the area clean and safe, with all debris removed.',
+  'Removed all debris and returned the area to normal use.',
+];
+const TAIL = [
+  'Photos attached. All work order tasks completed.',
+  'Photos uploaded to the work order. All tasks completed.',
+  'Photos attached for reference. All required work order tasks completed.',
+];
+
+function templateClosure(description, ocrText, variant = 0) {
   const w = parseWorkOrder(ocrText);
+  const pick = (arr) => arr[Math.abs(variant) % arr.length];
   const d = (description || '').trim().replace(/[.\s]+$/, '');
   const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  const scen = w.preventive ? null : matchScenario(d || requestSegment(w.desc));
+  if (scen) {
+    const { scenario: sc, subject } = scen;
+    const parts = [`${cap(sc.past)} the ${subject}.`];
+    if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
+    parts.push(sc.steps, pick(VERIFY), pick(TAIL));
+    return parts.join(' ');
+  }
   const task = w.preventive ? { verb: null } : extractTask(d, ocrText);
   const rule = KNOWLEDGE.find((k) => k.re.test(`${w.equipment} ${task.object || d}`)) || (!task.verb && KNOWLEDGE.find((k) => k.re.test(w.desc)));
   const thing = w.equipment || (rule ? rule.label : '');
@@ -151,29 +172,30 @@ function templateClosure(description, ocrText) {
     if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
     const repairLike = task.verb.past === 'repaired';
     parts.push(repairLike && rule ? rule.fix : task.verb.steps(task.object));
-    parts.push('Work was verified complete and the area is clean and safe.');
+    parts.push(pick(VERIFY));
   } else {
     const seg = !d && !w.equipment ? requestSegment(w.desc) : '';
     parts.push(d ? `${cap(d)}.` : seg ? `Completed repair of ${seg.charAt(0).toLowerCase() + seg.slice(1)}.` : `Completed repair${on || ' as requested in the work order'}.`);
     if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
     if (rule) parts.push(rule.fix);
-    parts.push('Work was verified complete and the area is clean and safe.');
+    parts.push(pick(VERIFY));
   }
-  parts.push('Photos attached.', 'All work order tasks completed.');
+  parts.push(pick(TAIL));
   return parts.join(' ');
 }
 
 // Used when no API key is configured, or the API call fails.
-function fallback(mode, description, vendor, ocrText = '') {
+function fallback(mode, description, vendor, ocrText = '', variant = 0) {
   const w = parseWorkOrder(ocrText);
+  const sm = mode === 'worq' ? matchScenario((description || '').trim() || requestSegment(w.desc)) : null;
   const t = mode === 'worq' ? extractTask(description, ocrText) : null;
   const d = (t && t.verb && t.text.charAt(0).toLowerCase() + t.text.slice(1)) || (description || '').trim().replace(/[.\s]+$/, '') || (t && t.verb ? t.text.charAt(0).toLowerCase() + t.text.slice(1) : '') || (mode === 'worq' && w.equipment ? 'repair ' + w.equipment : '') || (mode === 'worq' && requestSegment(w.desc) ? 'repair ' + requestSegment(w.desc).toLowerCase() : '');
   if (mode === 'worq') {
-    const imperative = t && t.verb ? d.replace(/^hung\b/i, 'hang') : d && !/^repair\b/i.test(d) ? `repair ${d}` : d;
+    const imperative = sm ? `${sm.scenario.imp} ${sm.subject}` : t && t.verb ? d.replace(/^hung\b/i, 'hang') : d && !/^repair\b/i.test(d) ? `repair ${d}` : d;
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
     return `WORQ ${who} ${imperative || 'repair issue noted in attached photo'}`;
   }
-  return templateClosure(description, ocrText);
+  return templateClosure(description, ocrText, variant);
 }
 
 // Guarantee the closure rule even if the model is terse.
@@ -186,13 +208,13 @@ function enforce(mode, text, description, vendor, ocrText) {
   return t;
 }
 
-async function generate({ mode, description, vendor, images = [], ocrText = '' }, apiKey, model) {
-  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText), source: 'template' };
+async function generate({ mode, description, vendor, images = [], ocrText = '', variant = 0 }, apiKey, model) {
+  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant), source: 'template' };
   const content = images.slice(0, 5).map((src) => {
     const m = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(src);
     return m && { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } };
   }).filter(Boolean);
-  content.push({ type: 'text', text: buildPrompt(mode, description, vendor, ocrText) });
+  content.push({ type: 'text', text: buildPrompt(mode, description, vendor, ocrText, variant) });
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
