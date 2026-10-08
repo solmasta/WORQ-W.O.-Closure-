@@ -70,11 +70,11 @@ assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { coun
   const w = await handle({ mode: 'worq', description: 'fix wall', answers: { what: 'Hole in the wall', where: 'Lobby' }, ...base }, '', '');
   assert.ok(!w.blocked && /patch hole in the wall/.test(w.request), w.request);
   // the exact layout the technicians must send
-  assert.ok(w.text.startsWith('WORQ\n• Location: 5401 S Wentworth Ave, Chicago, IL 60609 (Lobby)\n• FM: Dave Fleming\n• Priority (Rush, Normal): Normal\n• WO Description: WORQ MTS request to patch hole in the wall.'), w.text);
+  assert.ok(w.text.startsWith('WORQ\n• Location: 5401 S Wentworth Ave, Chicago, IL 60609 (Lobby)\n• FM: Dave Fleming\n• Priority (Normal, Urgent): Normal\n• WO Description: WORQ MTS request to patch hole in the wall.'), w.text);
   assert.ok(/Cut out the damaged section/.test(w.text) && /\n• NTE: \$500\n• Vendor: MTS$/.test(w.text), w.text);
   assert.ok(w.text.split('• WO Description: ')[1].split('\n')[0].split(/\s+/).length >= 10);
-  const r = await handle({ mode: 'worq', description: 'clogged sink in the kitchen', ...base, vendor: 'vendor', vendorName: 'ABC Plumbing', priority: 'rush' }, '', '');
-  assert.ok(/• Priority \(Rush, Normal\): Rush/.test(r.text) && /• Vendor: ABC Plumbing$/.test(r.text), r.text);
+  const r = await handle({ mode: 'worq', description: 'clogged sink in the kitchen', ...base, vendor: 'vendor', vendorName: 'ABC Plumbing', priority: 'urgent' }, '', '');
+  assert.ok(/• Priority \(Normal, Urgent\): Urgent/.test(r.text) && /• Vendor: ABC Plumbing$/.test(r.text), r.text);
   const c = await handle({ mode: 'closure', description: 'fix wall', answers: { what: 'Hole in the wall', where: 'Lobby' }, fm: 'Dave Fleming' }, '', '');
   assert.ok(!c.blocked && /hole/i.test(c.text) && /installed new drywall/.test(c.text) && /Work area: lobby/.test(c.text) && /Dave Fleming/.test(c.text) && c.text.split(/\s+/).length >= 10, c.text);
   // 3) WORQ requires facility manager, address and NTE

@@ -160,7 +160,7 @@ const fmWorq = (opts, accessText) => {
   if (opts.access === 'fm') return `Contact Facility Manager ${fm} to schedule access.`;
   return [accessText, `Facility Manager: ${fm}.`].filter(Boolean).join(' ');
 };
-const PRIORITY_TEXT = { rush: 'This is a rush request.' };
+const PRIORITY_TEXT = { urgent: 'This is an urgent request.', rush: 'This is an urgent request.' };
 const crewWord = (n) => ({ 1: '1 man', 2: '2 man', 3: '3 man', 4: '4 man' }[n] || '');
 
 // The WORQ request: "WORQ MTS request to investigate and repair <problem> <condition>. <crew / access / notes>"
@@ -351,14 +351,14 @@ function composeWorq(b, ai = null) {
   let request = `WORQ ${who} ${core}.${crew > 1 || nCrew ? ` This is a ${crewWord(crew)} job.` : ''}`;
   if (ai && /^WORQ\b/.test(ai.request || '')) request = ai.request.trim();
   if (ai && wordsIn(ai.description) >= 10) descr = ai.description.trim();
-  // Layout the technicians are required to send:  WORQ / Location / FM / Priority (Rush, Normal) / WO Description / NTE / Vendor
+  // Layout the technicians send:  WORQ / Location / FM / Priority (Normal, Urgent) / WO Description / NTE / Vendor
   const location = [b.address, area ? `(${area})` : ''].filter(Boolean).join(' ');
   const vendor = b.vendor === 'vendor' ? ((b.vendorName || '').trim() || 'Third party vendor (to be assigned)') : 'MTS';
   const woDescription = [request, descr, accessTxt, sentence(b.notes)].filter(Boolean).join(' ');
   const title = cap1(core).slice(0, 80);
   const street = (b.address || '').split(',')[0];
   const subject = `WORQ${street ? ' – ' + street : ''} – ${title}`;
-  const body = ['WORQ', `• Location: ${location}`, `• FM: ${b.fm || ''}`, `• Priority (Rush, Normal): ${b.priority === 'rush' ? 'Rush' : 'Normal'}`,
+  const body = ['WORQ', `• Location: ${location}`, `• FM: ${b.fm || ''}`, `• Priority (Normal, Urgent): ${b.priority === 'urgent' || b.priority === 'rush' ? 'Urgent' : 'Normal'}`,
     `• WO Description: ${woDescription}`, `• NTE: ${b.nte || ''}`, `• Vendor: ${vendor}`].join('\n');
   return { request, description: descr, subject, body };
 }
