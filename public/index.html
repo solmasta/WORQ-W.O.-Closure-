@@ -70,6 +70,11 @@
       <div id="addrList" class="suggest" hidden></div>
     </div>
     <div class="row" style="margin:8px 0 0"><button id="useLoc" type="button">📍 Use my location</button><button id="clearAddr" type="button">Clear address</button></div>
+    <div class="grid" style="margin:8px 0 0">
+      <select id="siteState" aria-label="BMO state"><option value="">BMO branch: state…</option></select>
+      <select id="siteBranch" aria-label="BMO branch" disabled><option value="">Branch…</option></select>
+    </div>
+    <div class="meta" style="margin-top:4px">Every BMO branch address is built in (<a href="bmo-branches.csv" download>download list</a>). You can also type any other address.</div>
     <div id="map" hidden></div>
     <div class="meta" id="addrNote" style="margin-bottom:12px"></div>
     <label>Pick it from the menus</label>
@@ -141,7 +146,7 @@ let config = { email: '' };
 fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
 
 // Closing Comment and WORQ are completely separate: each keeps its own photos, text, menus and result.
-const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', fm: '', nte: '', vendorName: '', answers: {}, lastDesc: '', addr: '', lat: null, lon: null, crew: '', access: '', priority: '',
+const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', fm: '', nte: '', vendorName: '', answers: {}, lastDesc: '', addr: '', siteName: '', lat: null, lon: null, crew: '', access: '', priority: '',
   mCat: '', mItem: '', mProb: '', mLoc: '', vendor: 'mts', variant: 0, guessed: '', result: null, status: '' });
 const state = { closure: fresh(), worq: fresh() };
 let mode = 'closure';
@@ -404,41 +409,81 @@ async function reverse(lat, lon) {
   return j.features && j.features[0] ? fmtAddr(j.features[0].properties) : '';
 }
 async function pinTo(lat, lon) {   // the tech moved the pin or tapped the map
-  const st = S(); st.lat = lat; st.lon = lon; showMap(st);
+  const st = S(); st.lat = lat; st.lon = lon; st.siteName = ''; showMap(st);
   $('addrNote').textContent = 'Looking up that spot…';
   try {
     const a = await reverse(lat, lon);
     if (st === S()) { if (a) { st.addr = a; $('addr').value = a; } $('addrNote').textContent = a ? 'Pin set. Drag it to fine-tune.' : 'No street address found there; the pin location was still saved.'; }
   } catch (e) { $('addrNote').textContent = 'Could not look up that spot.'; }
 }
-async function searchAddr(q) {
+// ---- BMO branch list (official FDIC data, built in) ----
+let SITES = null, sitesLoad;
+function loadSites() {
+  return (sitesLoad ||= fetch('sites.json').then((r) => r.json()).then((j) => {
+    SITES = j.sites;
+    const counts = {}; SITES.forEach((x) => (counts[x.s] = (counts[x.s] || 0) + 1));
+    fill($('siteState'), Object.keys(counts).sort().map((k) => `${k} (${counts[k]})`), 'BMO branch: state…');
+    [...$('siteState').options].forEach((o) => { if (o.value) o.value = o.value.slice(0, 2); });
+  }).catch(() => { SITES = []; }));
+}
+const siteLabel = (x) => `${x.a}, ${x.c}, ${x.s} ${x.z}`;
+function pickSite(x) {
+  const st = S();
+  st.addr = siteLabel(x); st.siteName = `BMO ${x.n}`; st.lat = x.y; st.lon = x.x;
+  $('addr').value = st.addr; $('addrList').hidden = true; $('addrNote').textContent = `${st.siteName}. Pin set; drag it to fine-tune.`;
+  showMap(st);
+}
+$('siteState').onchange = () => {
+  const stt = $('siteState').value, list = (SITES || []).map((x, i) => [x, i]).filter(([x]) => x.s === stt).sort((p, q) => p[0].c.localeCompare(q[0].c) || p[0].a.localeCompare(q[0].a));
+  $('siteBranch').innerHTML = '<option value="">Branch…</option>' + list.map(([x, i]) => `<option value="${i}">${x.c}: ${x.a}${x.t !== 'Branch' ? ' (' + x.t.toLowerCase() + ')' : ''}</option>`).join('');
+  $('siteBranch').disabled = !stt;
+};
+$('siteBranch').onchange = () => { const i = $('siteBranch').value; if (i !== '') pickSite(SITES[Number(i)]); };
+function localMatches(q) {
+  if (!SITES) return [];
+  const toks = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return SITES.filter((x) => { const hay = `${x.n} ${x.a} ${x.c} ${x.s} ${x.z}`.toLowerCase(); return toks.every((t) => hay.includes(t)); }).slice(0, 5);
+}
+function showSuggestions(local, remote) {
+  const box = $('addrList'); box.innerHTML = '';
+  local.forEach((x) => {
+    const d = document.createElement('div'); d.innerHTML = '<b>BMO</b> '; d.append(`${x.n} · ${siteLabel(x)}`);
+    d.onmousedown = d.ontouchstart = (e) => { e.preventDefault(); pickSite(x); };
+    box.appendChild(d);
+  });
+  remote.forEach((it) => {
+    const d = document.createElement('div'); d.textContent = it.label;
+    d.onmousedown = d.ontouchstart = (e) => { e.preventDefault(); const st = S(); st.addr = it.label; st.siteName = ''; st.lat = it.lat; st.lon = it.lon; $('addr').value = it.label; box.hidden = true; $('addrNote').textContent = 'Pin set. Drag it to fine-tune.'; showMap(st); };
+    box.appendChild(d);
+  });
+  if (!box.children.length) box.innerHTML = '<div>No matches. Keep typing or drop a pin on the map.</div>';
+  box.hidden = false;
+}
+async function searchAddr(q, local) {
   const my = ++addrSeq;
   try {
     const r = await fetch(`${PHOTON}/api/?q=${encodeURIComponent(q)}&limit=8&lang=en`);
     const j = await r.json();
     if (my !== addrSeq) return; // a newer search replaced this one
-    const seen = new Set();
+    const seen = new Set(local.map(siteLabel));
     const items = (j.features || []).map((f) => ({ label: fmtAddr(f.properties), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], house: !!f.properties.housenumber }))
       .filter((x) => x.label && !seen.has(x.label) && seen.add(x.label)).sort((a, b) => b.house - a.house).slice(0, 6);
-    const box = $('addrList'); box.innerHTML = '';
-    if (!items.length) { box.innerHTML = '<div>No matches. Keep typing or drop a pin on the map.</div>'; box.hidden = false; return; }
-    items.forEach((it) => {
-      const d = document.createElement('div'); d.textContent = it.label;
-      d.onmousedown = d.ontouchstart = (e) => { e.preventDefault(); const st = S(); st.addr = it.label; st.lat = it.lat; st.lon = it.lon; $('addr').value = it.label; box.hidden = true; $('addrNote').textContent = 'Pin set. Drag it to fine-tune.'; showMap(st); };
-      box.appendChild(d);
-    });
-    box.hidden = false;
-  } catch (e) { $('addrNote').textContent = 'Address search is unavailable right now. You can still type the address.'; }
+    showSuggestions(local, items);
+  } catch (e) { if (my === addrSeq) showSuggestions(local, []); $('addrNote').textContent = 'Wider address search is unavailable right now. BMO branches and typed addresses still work.'; }
 }
+$('addr').onfocus = () => { loadSites(); };
 $('addr').oninput = () => {
-  const st = S(); st.addr = $('addr').value; st.lat = st.lon = null; $('map').hidden = true; $('addrNote').textContent = '';
+  const st = S(); st.addr = $('addr').value; st.siteName = ''; st.lat = st.lon = null; $('map').hidden = true; $('addrNote').textContent = '';
   clearTimeout(addrTimer);
   const q = $('addr').value.trim();
-  if (q.length < 4) { $('addrList').hidden = true; return; }
-  addrTimer = setTimeout(() => searchAddr(q), 350);
+  if (q.length < 2) { $('addrList').hidden = true; return; }
+  const local = q.length >= 2 ? localMatches(q) : [];
+  if (local.length) showSuggestions(local, []);
+  if (q.length < 4) { if (!local.length) $('addrList').hidden = true; return; }
+  addrTimer = setTimeout(() => searchAddr(q, localMatches(q)), 350);
 };
 $('addr').onblur = () => setTimeout(() => ($('addrList').hidden = true), 200);
-$('clearAddr').onclick = () => { const st = S(); st.addr = ''; st.lat = st.lon = null; $('addr').value = ''; $('map').hidden = true; $('addrNote').textContent = ''; $('addrList').hidden = true; };
+$('clearAddr').onclick = () => { const st = S(); st.addr = ''; st.siteName = ''; $('siteState').value = ''; $('siteBranch').value = ''; $('siteBranch').disabled = true; st.lat = st.lon = null; $('addr').value = ''; $('map').hidden = true; $('addrNote').textContent = ''; $('addrList').hidden = true; };
 $('useLoc').onclick = () => {
   if (!navigator.geolocation) { $('addrNote').textContent = 'Location is not available on this device.'; return; }
   $('addrNote').textContent = 'Finding your location…';
@@ -479,7 +524,7 @@ async function run() {
   try {
     const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mode: m, vendor: st.vendor, description: st.desc, images: config.ai ? st.images : [], ocrText: st.texts.join('\n\n'),
-        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, nte: st.nte.trim(), vendorName: st.vendorName.trim(), answers: st.answers, address: st.addr, notes: st.notes.trim() }) });
+        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, nte: st.nte.trim(), vendorName: st.vendorName.trim(), answers: st.answers, address: st.siteName ? `${st.siteName}, ${st.addr}` : st.addr, notes: st.notes.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     if (j.blocked) {
@@ -512,6 +557,7 @@ $('nte').oninput = () => { S().nte = $('nte').value; $('nte').classList.remove('
 $('vendorName').oninput = () => { S().vendorName = $('vendorName').value; };
 $('fm').onchange = () => $('fm').classList.remove('bad');
 setMode('closure');
+loadSites();
 </script>
 </body>
 </html>

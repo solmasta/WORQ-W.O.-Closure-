@@ -113,6 +113,13 @@ assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { coun
     const r = await handle({ mode: 'worq', description: compose('Sink', 'Clogged', loc), ...base }, '', '');
     assert.ok(!r.blocked, `location "${loc}" from the menu was not recognized: ${JSON.stringify(r.required)}`);
   }
+  // BMO branch list (official FDIC data) is present and complete enough to use
+  const sitesFile = JSON.parse(require('fs').readFileSync('./public/sites.json', 'utf8'));
+  assert.ok(sitesFile.sites.length >= 900, 'branch list looks too small');
+  assert.ok(sitesFile.sites.every((x) => x.a && x.c && /^[A-Z]{2}$/.test(x.s) && /^\d{5}$/.test(x.z) && x.y && x.x), 'a branch record is missing an address or coordinates');
+  assert.ok(sitesFile.sites.some((x) => /1400 W 18th St/.test(x.a) && x.c === 'Chicago'), 'known Chicago branch missing');
+  const sited = await handle({ mode: 'worq', description: 'clogged sink in the lobby', ...base, address: 'BMO Pilsen Branch, 1400 W 18th St, Chicago, IL 60608' }, '', '');
+  assert.ok(sited.text.includes('• Location: BMO Pilsen Branch, 1400 W 18th St, Chicago, IL 60608 (Lobby)'), sited.text);
   // 7) messy phrases the way technicians really type them
   const { matchScenario } = require('./scenarios');
   const cases = {
