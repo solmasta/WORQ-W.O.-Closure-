@@ -12,6 +12,6 @@ module.exports = async (req, res) => {
     res.status(200).json(await generate(body, process.env.ANTHROPIC_API_KEY, process.env.CLAUDE_MODEL || 'claude-sonnet-5-5'));
   } catch (e) {
     console.error(e.message);
-    res.status(200).json({ text: fallback(body.mode, body.description, body.vendor, body.ocrText, body.variant, { crew: body.crew, notes: body.notes }), source: 'template', warning: 'AI unavailable, used template' });
+    res.status(200).json({ text: fallback(body.mode, body.description, body.vendor, body.ocrText, body.variant, { crew: body.crew, notes: body.notes, access: body.access, priority: body.priority }), source: 'template', warning: 'AI unavailable, used template' });
   }
 };

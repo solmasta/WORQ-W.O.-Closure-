@@ -17,6 +17,8 @@ const ocrBlock = (t) => (t && t.trim() ? `\nText read from the work order screen
 
 function buildPrompt(mode, description, vendor, ocrText = '', variant = 0, opts = {}) {
   const crewLine = Number(opts.crew) ? `\nCrew size: ${Number(opts.crew)} man job.` : '';
+  const accessLine = opts.access && ACCESS_TEXT[opts.access] ? `\nAccess/equipment: ${ACCESS_TEXT[opts.access].worq}` : '';
+  const prioLine = PRIORITY_TEXT[opts.priority] ? `\nPriority: ${PRIORITY_TEXT[opts.priority]}` : '';
   const notesLine = opts.notes && opts.notes.trim() ? `\nExtra details from the technician (include them): ${opts.notes.trim()}` : '';
   if (mode === 'worq') {
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
@@ -26,13 +28,13 @@ Match the style of these real examples:
 "WORQ MTS request to investigate and repair exterior wall pack lights that are not working. This is a 2 man job."
 "WORQ MTS request to investigate and repair issues with excessive heat in the IT Room"
 "WORQ third party vendor needed to repair loose shingles"
-Issue details: ${description || '(see screenshot)'}${crewLine}${notesLine}${ocrBlock(ocrText)}`;
+Issue details: ${description || '(see screenshot)'}${crewLine}${accessLine}${prioLine}${notesLine}${ocrBlock(ocrText)}`;
   }
   return `Write a work order closure comment describing the repair that was completed so the work order can be closed.
 Rules: past tense, plain professional language, ${MIN_WORDS} words or more. Use 4-6 detailed sentences: what was investigated and found, the work performed, testing and the result. Include realistic, specific technician detail for this kind of problem (e.g. a clogged sink: used a drain snake, flushed the line, checked the trap for leaks; a running toilet: replaced the flapper and fill valve): what work was completed, any access/contact steps required, what was inspected or repaired, the result, and that all tasks are complete.
 ${variant ? `This is regeneration #${variant}: use noticeably different wording and sentence structure than a standard version.\n` : ''}Match the style of this example (a quarterly preventive maintenance on a ceiling heater):
 "${EXAMPLE}"
-Repair details: ${description || '(see screenshot)'}${crewLine}${notesLine}${ocrBlock(ocrText)}`;
+Repair details: ${description || '(see screenshot)'}${crewLine}${accessLine}${prioLine}${notesLine}${ocrBlock(ocrText)}`;
 }
 
 // Pull the useful bits out of OCR text from a work order screenshot.
@@ -138,18 +140,29 @@ function requestSegment(desc) {
 }
 
 const sentence = (x) => { const t = (x || '').trim().replace(/\s+/g, ' '); return t ? t.charAt(0).toUpperCase() + t.slice(1).replace(/[.\s]*$/, '.') : ''; };
+const ACCESS_TEXT = {
+  ladder: { worq: 'Ladder required.', done: 'Used a ladder to access the work area.' },
+  lift: { worq: 'Lift required.', done: 'Used a lift to access the work area.' },
+  roof: { worq: 'Roof access required.', done: 'Accessed the roof safely to complete the work.' },
+  afterhours: { worq: 'Work must be done after hours.', done: 'Work was performed after hours.' },
+  lockout: { worq: 'Lockout/tagout required.', done: 'Followed lockout/tagout procedures before starting work.' },
+  fm: { worq: 'Contact the Facility Manager to schedule access.', done: 'Contacted Facility Manager and gained access as required.' },
+};
+const PRIORITY_TEXT = { urgent: 'This is an urgent request.', safety: 'This is a safety concern.' };
 const crewWord = (n) => ({ 1: '1 man', 2: '2 man', 3: '3 man', 4: '4 man' }[n] || '');
 
 // The WORQ request: "WORQ MTS request to investigate and repair <problem> <condition>. <crew / access / notes>"
 function worqRequest(sm, vendor, opts = {}) {
   const sc = sm.scenario;
   const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
-  const hasAdj = /^(burned-out|dead|broken)\b/.test(sm.subject);
+  const hasAdj = /^(burned-out|dead|broken)\b/.test(sm.core);
   const cond = sc.cond && sm.broken && !hasAdj ? (sm.plural ? ' that are not working' : ' that is not working') : '';
   const verb = cond && sc.imp === 'replace' ? 'repair' : sc.imp;
-  const core = sc.issues ? `investigate and repair issues with ${sm.subject}` : `${sc.invest ? 'investigate and ' : ''}${verb} ${sm.subject}${cond}`;
+  const where = sm.suffix ? ` ${sm.suffix}` : '';
+  const core = sc.issues ? `investigate and repair issues with ${sm.subject}` : `${sc.invest ? 'investigate and ' : ''}${verb} ${sm.core}${cond}${where}`;
   const crew = Number(opts.crew) || sc.crew || 0;
-  const extra = [crew > 1 || opts.crew ? `This is a ${crewWord(crew)} job.` : '', sc.access && !opts.crew ? sc.access : '', sentence(opts.notes)].filter(Boolean);
+  const access = opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].worq : sc.access;
+  const extra = [crew > 1 || opts.crew ? `This is a ${crewWord(crew)} job.` : '', access, PRIORITY_TEXT[opts.priority], sentence(opts.notes)].filter(Boolean);
   return `WORQ ${who} ${core}${extra.length ? '. ' + extra.join(' ') : ''}`;
 }
 
@@ -169,14 +182,16 @@ function templateClosure(description, ocrText, variant = 0, opts = {}) {
   const pick = (arr) => arr[Math.abs(variant) % arr.length];
   const d = (description || '').trim().replace(/[.\s]+$/, '');
   const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
-  const extras = () => [sentence(opts.notes), Number(opts.crew) ? `Work was completed by a ${crewWord(Number(opts.crew))} crew.` : ''].filter(Boolean);
+  const extras = () => [opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].done : '', sentence(opts.notes), Number(opts.crew) ? `Work was completed by a ${crewWord(Number(opts.crew))} crew.` : ''].filter(Boolean);
   const scen = w.preventive ? null : matchScenario(d || requestSegment(w.desc));
   if (scen) {
     const { scenario: sc, subject } = scen;
     const parts = [sc.issues ? `Investigated and repaired the issues with ${subject}.` : `${cap(sc.past)} the ${subject}.`];
     if (sc.found) parts.push(sc.found);
     if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
-    parts.push(sc.steps, ...extras(), pick(VERIFY), pick(TAIL));
+    const acc = opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].done : '';
+    if (acc) parts.push(acc);
+    parts.push(sc.steps, ...extras().filter((x) => x !== acc), pick(VERIFY), pick(TAIL));
     return parts.join(' ');
   }
   const task = w.preventive ? { verb: null } : extractTask(d, ocrText);
@@ -219,7 +234,7 @@ function fallback(mode, description, vendor, ocrText = '', variant = 0, opts = {
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
     const base = imperative || 'repair issue noted in attached photo';
     const crew = Number(opts.crew);
-    const extra = [crew ? `This is a ${crewWord(crew)} job.` : '', sentence(opts.notes)].filter(Boolean);
+    const extra = [crew ? `This is a ${crewWord(crew)} job.` : '', opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].worq : '', PRIORITY_TEXT[opts.priority], sentence(opts.notes)].filter(Boolean);
     return `WORQ ${who} ${/^repair\b/.test(base) ? 'investigate and ' + base : base}${extra.length ? '. ' + extra.join(' ') : ''}`;
   }
   return templateClosure(description, ocrText, variant, opts);
@@ -235,13 +250,13 @@ function enforce(mode, text, description, vendor, ocrText) {
   return t;
 }
 
-async function generate({ mode, description, vendor, images = [], ocrText = '', variant = 0, crew = '', notes = '' }, apiKey, model) {
-  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant, { crew, notes }), source: 'template' };
+async function generate({ mode, description, vendor, images = [], ocrText = '', variant = 0, crew = '', notes = '', access = '', priority = '' }, apiKey, model) {
+  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant, { crew, notes, access, priority }), source: 'template' };
   const content = images.slice(0, 5).map((src) => {
     const m = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(src);
     return m && { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } };
   }).filter(Boolean);
-  content.push({ type: 'text', text: buildPrompt(mode, description, vendor, ocrText, variant, { crew, notes }) });
+  content.push({ type: 'text', text: buildPrompt(mode, description, vendor, ocrText, variant, { crew, notes, access, priority }) });
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',

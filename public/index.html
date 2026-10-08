@@ -27,6 +27,9 @@
   .row { display:flex; gap:8px; margin-top:12px; } .row > * { flex:1; }
   #vendorRow { margin-bottom:12px; } #out { font-weight:600; white-space:pre-wrap; }
   .meta { color:var(--muted); font-size:.85rem; margin-top:8px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  summary { cursor:pointer; font-weight:600; padding:8px 0; }
+  select:disabled { opacity:.5; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -46,12 +49,24 @@
         <button id="vVendor">Third party vendor</button>
       </div>
     </div>
+    <label>Pick it from the menus</label>
+    <div class="grid">
+      <select id="mCat" aria-label="Category"><option value="">Category…</option></select>
+      <select id="mItem" aria-label="Item" disabled><option value="">Item…</option></select>
+      <select id="mProb" aria-label="Problem" disabled><option value="">Problem…</option></select>
+      <select id="mLoc" aria-label="Location"><option value="">Location…</option></select>
+    </div>
     <label for="desc" id="descLabel">What repair was done?</label>
     <textarea id="desc" placeholder="e.g. replaced bad capacitor on compressor"></textarea>
     <div style="margin-top:12px"><label for="notes">Extra details (optional)</label>
       <textarea id="notes" style="min-height:60px" placeholder="e.g. replaced 3 lamps and a photocell; needs a lift"></textarea></div>
-    <div style="margin-top:12px"><label for="crew">Crew size (optional)</label>
-      <select id="crew"><option value="">Not specified</option><option value="1">1 man job</option><option value="2">2 man job</option><option value="3">3 man job</option></select></div>
+    <details id="more" style="margin-top:8px"><summary>More options (crew, access, priority)</summary>
+      <div class="grid" style="margin-top:8px">
+        <div><label for="crew">Crew size</label><select id="crew"><option value="">Not specified</option><option value="1">1 man job</option><option value="2">2 man job</option><option value="3">3 man job</option></select></div>
+        <div><label for="access">Access needed</label><select id="access"><option value="">None</option><option value="ladder">Ladder</option><option value="lift">Lift</option><option value="roof">Roof access</option><option value="afterhours">After hours</option><option value="lockout">Lockout/tagout</option><option value="fm">Contact Facility Manager</option></select></div>
+        <div><label for="priority">Priority</label><select id="priority"><option value="">Routine</option><option value="urgent">Urgent</option><option value="safety">Safety concern</option></select></div>
+      </div>
+    </details>
     <div class="row" style="margin:12px 0 0">
       <button id="camBtn" type="button">📷 Take photo</button>
       <button id="pickBtn" type="button">🖼️ Upload photo or file</button>
@@ -122,6 +137,32 @@ async function ocr(dataUrl) {
   } catch (e) { $('ocrStatus').textContent = 'Could not read screenshot text; using your description only.'; return ''; }
 }
 
+// ---- Menus: Category -> Item -> Problem (+ Location) build the description ----
+let catalog;
+const fill = (sel, items, label) => { sel.innerHTML = `<option value="">${label}</option>` + items.map((x) => `<option>${x}</option>`).join(''); };
+import('./catalog.js').then((m) => {
+  catalog = m;
+  fill($('mCat'), Object.keys(m.CATALOG), 'Category…');
+  fill($('mLoc'), m.LOCATIONS, 'Location…');
+}).catch(() => { document.querySelector('.grid').hidden = true; });
+function buildFromMenus() {
+  if (!catalog || !$('mItem').value) return;
+  $('desc').value = catalog.compose($('mItem').value, $('mProb').value, $('mLoc').value);
+  guessed = '';
+}
+$('mCat').onchange = () => {
+  const items = catalog.CATALOG[$('mCat').value] || {};
+  fill($('mItem'), Object.keys(items), 'Item…'); $('mItem').disabled = !$('mCat').value;
+  fill($('mProb'), [], 'Problem…'); $('mProb').disabled = true;
+};
+$('mItem').onchange = () => {
+  const probs = (catalog.CATALOG[$('mCat').value] || {})[$('mItem').value] || [];
+  fill($('mProb'), probs, 'Problem…'); $('mProb').disabled = !$('mItem').value;
+  buildFromMenus();
+};
+$('mProb').onchange = buildFromMenus;
+$('mLoc').onchange = buildFromMenus;
+
 let guessed = ''; // the last value we auto-filled, so we don't overwrite what the user typed
 async function guessProblem(dataUrl) {
   try {
@@ -191,7 +232,7 @@ async function run() {
   if (!description.trim() && !images.length) { alert('Add a description or a screenshot first.'); return; }
   $('go').disabled = $('regen').disabled = true; $('go').textContent = 'Generating…';
   try {
-    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images: config.ai ? images : [], ocrText: texts.join('\n\n'), variant, crew: $('crew').value, notes: $('notes').value.trim() }) });
+    const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, vendor, description, images: config.ai ? images : [], ocrText: texts.join('\n\n'), variant, crew: $('crew').value, access: $('access').value, priority: $('priority').value, notes: $('notes').value.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     $('out').textContent = j.text;

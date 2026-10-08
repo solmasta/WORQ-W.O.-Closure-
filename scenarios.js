@@ -163,9 +163,10 @@ function matchScenario(text) {
   const rest2 = adj === 'water-stained' ? clean(rest.replace(/\bwater\b/gi, ' ')) : rest;
   const parts = sc.fixedSubject ? [sc.fixedSubject] : [adj, place, rest2, objWord].filter(Boolean);
   const seen = new Set();
-  const subject = parts.join(' ').split(' ').filter((w) => (seen.has(w.toLowerCase()) ? false : seen.add(w.toLowerCase()))).join(' ') + (suffix ? ` ${suffix}` : '');
-  const broken = /not work|won'?t work|inoperab|\bout\b|\bdead\b|burn|no power|stopped working/i.test(t);
-  return { scenario: sc, subject: clean(subject), plural: /s$/i.test(objWord), broken };
+  const core = parts.join(' ').split(' ').filter((w) => (seen.has(w.toLowerCase()) ? false : seen.add(w.toLowerCase()))).join(' ');
+  const subject = core + (suffix ? ` ${suffix}` : '');
+  const broken = /not work|not heat|not cool|no heat|no cool|won'?t work|inoperab|\bout\b|\bdead\b|burn|no power|stopped working/i.test(t);
+  return { scenario: sc, subject: clean(subject), core: clean(core), suffix, plural: /s$/i.test(objWord), broken };
 }
 
 module.exports = { matchScenario, SCENARIOS };
