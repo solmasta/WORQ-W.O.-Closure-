@@ -48,9 +48,13 @@
     </div>
     <label for="desc" id="descLabel">What repair was done?</label>
     <textarea id="desc" placeholder="e.g. replaced bad capacitor on compressor"></textarea>
-    <div class="drop" id="drop">Paste, drop, or <a href="#" id="pick">choose</a> screenshots
-      <input type="file" id="file" accept="image/*" multiple hidden>
+    <div class="row" style="margin:12px 0 0">
+      <button id="camBtn" type="button">📷 Take photo</button>
+      <button id="pickBtn" type="button">🖼️ Upload photo or file</button>
     </div>
+    <div class="drop" id="drop">or paste / drop screenshots here</div>
+    <input type="file" id="camera" accept="image/*" capture="environment" hidden>
+    <input type="file" id="file" accept="image/*" multiple hidden>
     <div class="thumbs" id="thumbs"></div>
     <div class="meta" id="ocrStatus"></div>
     <div id="guess" hidden>
@@ -169,7 +173,9 @@ function renderThumbs() {
     $('thumbs').appendChild(d);
   });
 }
-$('pick').onclick = (e) => { e.preventDefault(); $('file').click(); };
+$('camBtn').onclick = () => $('camera').click();
+$('pickBtn').onclick = () => $('file').click();
+$('camera').onchange = (e) => { addFiles(e.target.files); e.target.value = ''; };
 $('file').onchange = (e) => { addFiles(e.target.files); e.target.value = ''; };
 $('drop').ondragover = (e) => e.preventDefault();
 $('drop').ondrop = (e) => { e.preventDefault(); addFiles(e.dataTransfer.files); };
