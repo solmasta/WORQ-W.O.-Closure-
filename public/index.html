@@ -53,6 +53,10 @@
     </div>
     <div class="thumbs" id="thumbs"></div>
     <div class="meta" id="ocrStatus"></div>
+    <div id="guess" hidden>
+      <div class="meta">Looks like the problem is (tap to change):</div>
+      <div class="row" id="guessChips" style="flex-wrap:wrap"></div>
+    </div>
     <div class="row"><button class="primary" id="go">Generate</button></div>
   </div>
 
@@ -96,14 +100,35 @@ function loadTesseract() {
     document.head.appendChild(sc);
   }));
 }
+let lastConf = 0;
 async function ocr(dataUrl) {
+  lastConf = 0;
   $('ocrStatus').textContent = 'Reading screenshot text…';
   try {
     await loadTesseract();
     const { data } = await Tesseract.recognize(dataUrl, 'eng');
     $('ocrStatus').textContent = 'Screenshot text read ✓';
+    lastConf = data.confidence || 0;
     return data.text || '';
   } catch (e) { $('ocrStatus').textContent = 'Could not read screenshot text; using your description only.'; return ''; }
+}
+
+let guessed = ''; // the last value we auto-filled, so we don't overwrite what the user typed
+async function guessProblem(dataUrl) {
+  try {
+    const { classify } = await import('./photo.js');
+    const { guesses: top, confident } = await classify(dataUrl, (m) => ($('ocrStatus').textContent = m));
+    $('ocrStatus').textContent = confident ? 'Photo checked ✓ (a guess, so edit it if it is wrong)' : 'Not sure what the problem is. Tap a suggestion or type a short description.';
+    $('guessChips').innerHTML = '';
+    top.forEach((g) => {
+      const b = document.createElement('button');
+      b.textContent = g.task; b.title = g.score.toFixed(2);
+      b.onclick = () => { $('desc').value = g.task; guessed = g.task; };
+      $('guessChips').appendChild(b);
+    });
+    $('guess').hidden = false;
+    if (confident && (!$('desc').value.trim() || $('desc').value === guessed)) { $('desc').value = top[0].task; guessed = top[0].task; }
+  } catch (e) { $('ocrStatus').textContent = 'Could not identify the photo; please type a short description.'; }
 }
 
 // Shrink screenshots so uploads stay small and fast on phones.
@@ -127,7 +152,11 @@ async function addFiles(files) {
     const d = await shrink(f); if (!d) continue;
     images.push(d); texts.push('');
     renderThumbs();
-    texts[images.length - 1] = await ocr(d);
+    const idx = images.length - 1;
+    texts[idx] = await ocr(d);
+    // A work order screenshot is text-heavy; a close-up of a problem is not.
+    const isScreenshot = /work\s*description/i.test(texts[idx]) || (lastConf > 75 && texts[idx].trim().length > 150);
+    if (!isScreenshot) await guessProblem(d);
   }
   renderThumbs();
 }
@@ -136,7 +165,7 @@ function renderThumbs() {
   images.forEach((src, i) => {
     const d = document.createElement('div');
     d.innerHTML = `<img src="${src}" alt="screenshot ${i + 1}"><b title="Remove">×</b>`;
-    d.querySelector('b').onclick = () => { images.splice(i, 1); texts.splice(i, 1); renderThumbs(); };
+    d.querySelector('b').onclick = () => { images.splice(i, 1); texts.splice(i, 1); if (!images.length) $('guess').hidden = true; renderThumbs(); };
     $('thumbs').appendChild(d);
   });
 }

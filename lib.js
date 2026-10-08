@@ -9,6 +9,7 @@ const EXAMPLE = 'Completed quarterly preventive maintenance on the ceiling heate
 const SYSTEM = `You write short maintenance work order text for a facilities team.
 Use any attached screenshots and the user's short description. You may assume the standard, logical repair steps for the request (e.g. a heater PM means inspected, cleaned and tested the unit; loose shingles means re-secured and sealed them), but never invent specifics such as part numbers, measurements, readings, costs or names.
 If a screenshot shows a work order (e.g. its Work Description, equipment, or required steps such as "contact the Facility Manager to schedule access"), reflect those tasks in the comment, and infer the logical work that fits the request.
+If no description is given and a photo is attached, the photo is a close-up of the problem: identify the most likely problem or repair from the picture and base the text on it.
 Output ONLY the requested text, with no quotes, labels or commentary.`;
 
 const ocrBlock = (t) => (t && t.trim() ? `\nText read from the work order screenshot (may contain OCR errors):\n${t.trim().slice(0, 3000)}` : '');
