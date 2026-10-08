@@ -58,6 +58,8 @@
     </div>
     <label for="desc" id="descLabel">What repair was done?</label>
     <textarea id="desc" placeholder="e.g. replaced bad capacitor on compressor"></textarea>
+    <div style="margin-top:12px"><label for="fm">Facility Manager</label>
+      <select id="fm"><option value="">Not specified</option></select></div>
     <div style="margin-top:12px"><label for="notes">Extra details (optional)</label>
       <textarea id="notes" style="min-height:60px" placeholder="e.g. replaced 3 lamps and a photocell; needs a lift"></textarea></div>
     <details id="more" style="margin-top:8px"><summary>More options (crew, access, priority)</summary>
@@ -101,7 +103,7 @@ let config = { email: '' };
 fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
 
 // Closing Comment and WORQ are completely separate: each keeps its own photos, text, menus and result.
-const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', crew: '', access: '', priority: '',
+const fresh = () => ({ images: [], texts: [], photoGuess: [], desc: '', notes: '', fm: '', crew: '', access: '', priority: '',
   mCat: '', mItem: '', mProb: '', mLoc: '', vendor: 'mts', variant: 0, guessed: '', result: null, status: '' });
 const state = { closure: fresh(), worq: fresh() };
 let mode = 'closure';
@@ -119,17 +121,17 @@ function setMenus(st) {
   fill($('mProb'), probs, 'Problem…'); $('mProb').disabled = !st.mItem; $('mProb').value = st.mProb;
   fill($('mLoc'), catalog.LOCATIONS, 'Location…'); $('mLoc').value = st.mLoc;
 }
-import('./catalog.js').then((m) => { catalog = m; setMenus(S()); }).catch(() => { document.querySelector('.grid').hidden = true; });
+import('./catalog.js').then((m) => { catalog = m; fill($('fm'), m.FACILITY_MANAGERS, 'Not specified'); $('fm').value = S().fm; setMenus(S()); }).catch(() => { document.querySelector('.grid').hidden = true; });
 
 // ---- keep the screen and the current tab's state in sync ----
 function save() {
   const st = S();
-  Object.assign(st, { desc: $('desc').value, notes: $('notes').value, crew: $('crew').value, access: $('access').value, priority: $('priority').value,
+  Object.assign(st, { desc: $('desc').value, notes: $('notes').value, fm: $('fm').value, crew: $('crew').value, access: $('access').value, priority: $('priority').value,
     mCat: $('mCat').value, mItem: $('mItem').value, mProb: $('mProb').value, mLoc: $('mLoc').value });
 }
 function load() {
   const st = S();
-  $('desc').value = st.desc; $('notes').value = st.notes; $('crew').value = st.crew; $('access').value = st.access; $('priority').value = st.priority;
+  $('desc').value = st.desc; $('notes').value = st.notes; $('fm').value = st.fm; $('crew').value = st.crew; $('access').value = st.access; $('priority').value = st.priority;
   setMenus(st);
   $('vMts').classList.toggle('on', st.vendor === 'mts'); $('vVendor').classList.toggle('on', st.vendor === 'vendor');
   $('ocrStatus').textContent = st.status;
@@ -295,7 +297,7 @@ async function run() {
   try {
     const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mode: m, vendor: st.vendor, description: st.desc, images: config.ai ? st.images : [], ocrText: st.texts.join('\n\n'),
-        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, notes: st.notes.trim() }) });
+        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, notes: st.notes.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     const words = j.text.trim().split(/\s+/).length;

@@ -41,4 +41,9 @@ assert.ok(fallback('worq', 'exterior wall pack lights not working', 'mts').start
 assert.ok(/This is a 3 man job\. Needs a lift\.$/.test(fallback('worq', 'sink clogged kitchen', 'mts', '', 0, { crew: '3', notes: 'needs a lift' })));
 assert.ok(/replaced 3 lamps/i.test(fallback('closure', 'light out in lobby', 'mts', '', 0, { notes: 'replaced 3 lamps' })));
 assert.ok(/2 man crew/.test(fallback('closure', 'light out in lobby', 'mts', '', 0, { crew: '2' })));
+assert.strictEqual(fallback('worq', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Dave Fleming' }), 'WORQ MTS request to clear clogged kitchen sink. Facility Manager: Dave Fleming.');
+assert.ok(fallback('worq', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Dave Fleming', access: 'fm' }).endsWith('Contact Facility Manager Dave Fleming to schedule access.'));
+assert.ok(fallback('closure', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Brianna Brungardt' }).includes('Contacted Facility Manager Brianna Brungardt and gained access as required.'));
+assert.ok(!/Contacted Facility Manager and/.test(fallback('closure', 'sink clogged kitchen', 'mts', '', 0, { fm: 'Alan Macejak', access: 'fm' })));
+assert.ok(!/Facility Manager/.test(fallback('closure', 'sink clogged kitchen', 'mts')));
 console.log('ok');

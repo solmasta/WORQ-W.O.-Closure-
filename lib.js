@@ -19,6 +19,7 @@ function buildPrompt(mode, description, vendor, ocrText = '', variant = 0, opts 
   const crewLine = Number(opts.crew) ? `\nCrew size: ${Number(opts.crew)} man job.` : '';
   const accessLine = opts.access && ACCESS_TEXT[opts.access] ? `\nAccess/equipment: ${ACCESS_TEXT[opts.access].worq}` : '';
   const prioLine = PRIORITY_TEXT[opts.priority] ? `\nPriority: ${PRIORITY_TEXT[opts.priority]}` : '';
+  const fmLineP = opts.fm ? `\nFacility Manager: ${opts.fm} (mention them by name${opts.access === 'fm' ? '; access must be scheduled through them' : ''}).` : '';
   const notesLine = opts.notes && opts.notes.trim() ? `\nExtra details from the technician (include them): ${opts.notes.trim()}` : '';
   if (mode === 'worq') {
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
@@ -28,13 +29,13 @@ Match the style of these real examples:
 "WORQ MTS request to investigate and repair exterior wall pack lights that are not working. This is a 2 man job."
 "WORQ MTS request to investigate and repair issues with excessive heat in the IT Room"
 "WORQ third party vendor needed to repair loose shingles"
-Issue details: ${description || '(see screenshot)'}${crewLine}${accessLine}${prioLine}${notesLine}${ocrBlock(ocrText)}`;
+Issue details: ${description || '(see screenshot)'}${crewLine}${accessLine}${fmLineP}${prioLine}${notesLine}${ocrBlock(ocrText)}`;
   }
   return `Write a work order closure comment describing the repair that was completed so the work order can be closed.
 Rules: past tense, plain professional language, ${MIN_WORDS} words or more. Use 4-6 detailed sentences: what was investigated and found, the work performed, testing and the result. Include realistic, specific technician detail for this kind of problem (e.g. a clogged sink: used a drain snake, flushed the line, checked the trap for leaks; a running toilet: replaced the flapper and fill valve): what work was completed, any access/contact steps required, what was inspected or repaired, the result, and that all tasks are complete.
 ${variant ? `This is regeneration #${variant}: use noticeably different wording and sentence structure than a standard version.\n` : ''}Match the style of this example (a quarterly preventive maintenance on a ceiling heater):
 "${EXAMPLE}"
-Repair details: ${description || '(see screenshot)'}${crewLine}${accessLine}${prioLine}${notesLine}${ocrBlock(ocrText)}`;
+Repair details: ${description || '(see screenshot)'}${crewLine}${accessLine}${fmLineP}${prioLine}${notesLine}${ocrBlock(ocrText)}`;
 }
 
 // Pull the useful bits out of OCR text from a work order screenshot.
@@ -148,6 +149,13 @@ const ACCESS_TEXT = {
   lockout: { worq: 'Lockout/tagout required.', done: 'Followed lockout/tagout procedures before starting work.' },
   fm: { worq: 'Contact the Facility Manager to schedule access.', done: 'Contacted Facility Manager and gained access as required.' },
 };
+// Facility manager wording. With a name chosen: "Contact Facility Manager X to schedule access." / "Facility Manager: X."
+const fmWorq = (opts, accessText) => {
+  const fm = (opts.fm || '').trim();
+  if (!fm) return accessText || '';
+  if (opts.access === 'fm') return `Contact Facility Manager ${fm} to schedule access.`;
+  return [accessText, `Facility Manager: ${fm}.`].filter(Boolean).join(' ');
+};
 const PRIORITY_TEXT = { urgent: 'This is an urgent request.', safety: 'This is a safety concern.' };
 const crewWord = (n) => ({ 1: '1 man', 2: '2 man', 3: '3 man', 4: '4 man' }[n] || '');
 
@@ -162,7 +170,7 @@ function worqRequest(sm, vendor, opts = {}) {
   const core = sc.issues ? `investigate and repair issues with ${sm.subject}` : `${sc.invest ? 'investigate and ' : ''}${verb} ${sm.core}${cond}${where}`;
   const crew = Number(opts.crew) || sc.crew || 0;
   const access = opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].worq : sc.access;
-  const extra = [crew > 1 || opts.crew ? `This is a ${crewWord(crew)} job.` : '', access, PRIORITY_TEXT[opts.priority], sentence(opts.notes)].filter(Boolean);
+  const extra = [crew > 1 || opts.crew ? `This is a ${crewWord(crew)} job.` : '', fmWorq(opts, access), PRIORITY_TEXT[opts.priority], sentence(opts.notes)].filter(Boolean);
   return `WORQ ${who} ${core}${extra.length ? '. ' + extra.join(' ') : ''}`;
 }
 
@@ -182,16 +190,18 @@ function templateClosure(description, ocrText, variant = 0, opts = {}) {
   const pick = (arr) => arr[Math.abs(variant) % arr.length];
   const d = (description || '').trim().replace(/[.\s]+$/, '');
   const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
-  const extras = () => [opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].done : '', sentence(opts.notes), Number(opts.crew) ? `Work was completed by a ${crewWord(Number(opts.crew))} crew.` : ''].filter(Boolean);
+  const fm = (opts.fm || '').trim();
+  const fmLine = fm ? `Contacted Facility Manager ${fm} and gained access as required.` : w.contactFM ? 'Contacted Facility Manager and gained access as required.' : '';
+  const accessDone = opts.access && ACCESS_TEXT[opts.access] && !(opts.access === 'fm' && fmLine) ? ACCESS_TEXT[opts.access].done : '';
+  const extras = () => [accessDone, sentence(opts.notes), Number(opts.crew) ? `Work was completed by a ${crewWord(Number(opts.crew))} crew.` : ''].filter(Boolean);
   const scen = w.preventive ? null : matchScenario(d || requestSegment(w.desc));
   if (scen) {
     const { scenario: sc, subject } = scen;
     const parts = [sc.issues ? `Investigated and repaired the issues with ${subject}.` : `${cap(sc.past)} the ${subject}.`];
     if (sc.found) parts.push(sc.found);
-    if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
-    const acc = opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].done : '';
-    if (acc) parts.push(acc);
-    parts.push(sc.steps, ...extras().filter((x) => x !== acc), pick(VERIFY), pick(TAIL));
+    if (fmLine) parts.push(fmLine);
+    if (accessDone) parts.push(accessDone);
+    parts.push(sc.steps, ...extras().filter((x) => x !== accessDone), pick(VERIFY), pick(TAIL));
     return parts.join(' ');
   }
   const task = w.preventive ? { verb: null } : extractTask(d, ocrText);
@@ -201,20 +211,20 @@ function templateClosure(description, ocrText, variant = 0, opts = {}) {
   const parts = [];
   if (w.preventive) {
     parts.push(`Completed ${w.frequency ? w.frequency + ' ' : ''}preventive maintenance${on}.`);
-    if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
+    if (fmLine) parts.push(fmLine);
     if (rule) parts.push(rule.pm);
     if (d) parts.push(`${cap(d)}.`);
     parts.push(...extras(), 'Equipment was inspected and confirmed operating within acceptable standards.');
   } else if (task.verb) {
     parts.push(`${cap(task.verb.lead ? task.verb.lead(task.first) : task.verb.past)} ${task.object}.`);
-    if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
+    if (fmLine) parts.push(fmLine);
     const repairLike = task.verb.past === 'repaired';
     parts.push(repairLike && rule ? rule.fix : task.verb.steps(task.object), ...extras());
     parts.push(pick(VERIFY));
   } else {
     const seg = !d && !w.equipment ? requestSegment(w.desc) : '';
     parts.push(d ? `${cap(d)}.` : seg ? `Completed repair of ${seg.charAt(0).toLowerCase() + seg.slice(1)}.` : `Completed repair${on || ' as requested in the work order'}.`);
-    if (w.contactFM) parts.push('Contacted Facility Manager and gained access as required.');
+    if (fmLine) parts.push(fmLine);
     if (rule) parts.push(rule.fix);
     parts.push(...extras(), pick(VERIFY));
   }
@@ -234,7 +244,7 @@ function fallback(mode, description, vendor, ocrText = '', variant = 0, opts = {
     const who = vendor === 'vendor' ? 'third party vendor needed to' : 'MTS request to';
     const base = imperative || 'repair issue noted in attached photo';
     const crew = Number(opts.crew);
-    const extra = [crew ? `This is a ${crewWord(crew)} job.` : '', opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].worq : '', PRIORITY_TEXT[opts.priority], sentence(opts.notes)].filter(Boolean);
+    const extra = [crew ? `This is a ${crewWord(crew)} job.` : '', fmWorq(opts, opts.access && ACCESS_TEXT[opts.access] ? ACCESS_TEXT[opts.access].worq : ''), PRIORITY_TEXT[opts.priority], sentence(opts.notes)].filter(Boolean);
     return `WORQ ${who} ${/^repair\b/.test(base) ? 'investigate and ' + base : base}${extra.length ? '. ' + extra.join(' ') : ''}`;
   }
   return templateClosure(description, ocrText, variant, opts);
@@ -250,13 +260,13 @@ function enforce(mode, text, description, vendor, ocrText) {
   return t;
 }
 
-async function generate({ mode, description, vendor, images = [], ocrText = '', variant = 0, crew = '', notes = '', access = '', priority = '' }, apiKey, model) {
-  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant, { crew, notes, access, priority }), source: 'template' };
+async function generate({ mode, description, vendor, images = [], ocrText = '', variant = 0, crew = '', notes = '', access = '', priority = '', fm = '' }, apiKey, model) {
+  if (!apiKey) return { text: fallback(mode, description, vendor, ocrText, variant, { crew, notes, access, priority, fm }), source: 'template' };
   const content = images.slice(0, 5).map((src) => {
     const m = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(src);
     return m && { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } };
   }).filter(Boolean);
-  content.push({ type: 'text', text: buildPrompt(mode, description, vendor, ocrText, variant, { crew, notes, access, priority }) });
+  content.push({ type: 'text', text: buildPrompt(mode, description, vendor, ocrText, variant, { crew, notes, access, priority, fm }) });
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',

@@ -90,3 +90,6 @@ export const ACCESS = {
   lockout: { worq: 'Lockout/tagout required.', done: 'Followed lockout/tagout procedures before starting work.' },
   fm: { worq: 'Contact the Facility Manager to schedule access.', done: 'Contacted Facility Manager and gained access as required.' },
 };
+
+// Facility managers shown in the drop-down (add more here).
+export const FACILITY_MANAGERS = ['Brianna Brungardt', 'Dave Fleming', 'Alan Macejak'];
