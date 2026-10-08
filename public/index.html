@@ -139,6 +139,10 @@
   <div class="card" id="result" hidden>
     <div class="err" id="blockedMsg" hidden style="margin:0 0 6px">We need a little more detail first. Generic requests like "fix wall" are not accepted. Please answer below.</div>
     <div id="outWrap">
+      <div id="hazardBox" hidden style="background:rgba(221,51,51,.12);border:1px solid #d33;border-radius:8px;padding:10px;margin-bottom:10px">
+        <b>⚠ This looks like a safety hazard.</b> Someone could get hurt. Make it urgent?
+        <div class="row" style="margin-top:8px"><button id="hazardBtn" class="primary" type="button">Mark as Urgent</button></div>
+      </div>
       <div class="meta" id="subjectLine" hidden></div>
       <div id="out"></div>
       <div class="meta" id="meta"></div>
@@ -457,6 +461,7 @@ function showResult(r) {
   $('blockedMsg').hidden = !blocked; $('outWrap').hidden = blocked;
   renderQuestions(blocked ? r.required : r.questions, blocked);
   if (blocked) return;
+  $('hazardBox').hidden = !(r.hazard && mode === 'worq' && S().priority !== 'urgent');
   $('subjectLine').hidden = !r.subject; $('subjectLine').textContent = r.subject ? `Subject: ${r.subject}` : '';
   $('out').textContent = r.text; $('meta').textContent = r.meta;
   $('copyLine').hidden = !r.request; $('mail').hidden = !r.subject || !config.email;
@@ -474,7 +479,7 @@ async function run() {
   try {
     const r = await fetch('/api/generate', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mode: m, vendor: m === 'worq' ? st.vendor : 'mts', description: st.desc, images: config.ai ? st.images : [], ocrText: st.texts.join('\n\n'),
-        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, nte: st.nte.trim(), vendorName: st.vendorName.trim(), answers: st.answers, address: st.siteName ? `${st.siteName}, ${st.addr}` : st.addr, notes: st.notes.trim() }) });
+        variant: st.variant, crew: st.crew, access: st.access, priority: st.priority, fm: st.fm, nte: st.nte.trim(), vendorName: st.vendorName.trim(), answers: (st.mLoc && !st.answers.where) ? { ...st.answers, where: st.mLoc } : st.answers, address: st.siteName ? `${st.siteName}, ${st.addr}` : st.addr, notes: st.notes.trim() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     if (j.blocked) {
@@ -482,12 +487,13 @@ async function run() {
       if (j.missing && j.missing.length) showErr(j.missing);
     } else {
       const words = j.text.trim().split(/\s+/).length;
-      st.result = { text: j.text, request: j.request, subject: j.subject, questions: j.questions || [], meta: `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}` };
+      st.result = { text: j.text, hazard: !!j.hazard, request: j.request, subject: j.subject, questions: j.questions || [], meta: `${words} words · ${j.source === 'ai' ? 'AI generated' : 'template (no AI)'}` };
     }
     if (m === mode) { showResult(st.result); $('result').scrollIntoView({ behavior: 'smooth' }); }
   } catch (e) { alert(e.message); }
   $('go').disabled = $('regen').disabled = false; $('go').textContent = label;
 }
+$('hazardBtn').onclick = () => { S().priority = 'urgent'; $('priority').value = 'urgent'; run(); };
 $('go').onclick = () => { S().variant = 0; run(); };
 $('regen').onclick = () => { S().variant += 1; run(); };
 $('clear').onclick = () => { state[mode] = fresh(); load(); };

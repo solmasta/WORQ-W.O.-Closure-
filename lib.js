@@ -339,7 +339,7 @@ function composeWorq(b, ai = null) {
     crew = nCrew || sc.crew || 0;
     accessTxt = accessTxt || sc.access || '';
     area = answers.where && answers.where !== Q.SKIP ? answers.where : locationWord(text) || sm.place || '';
-    descr = [sc.scope, sc.why, ...ap.worq].join(' ');
+    descr = [b.reported ? `Reported by the technician: ${sentence(b.reported)}` : '', sc.scope, sc.why, ...ap.worq].filter(Boolean).join(' ');
   } else {
     const t = extractTask(eff, b.ocrText);
     const imperative = t.verb ? t.text.charAt(0).toLowerCase() + t.text.slice(1).replace(/^hung\b/i, 'hang') : `investigate and repair ${text.charAt(0).toLowerCase() + text.slice(1)}`;
@@ -378,7 +378,13 @@ async function handle(body, apiKey, model) {
   }
   if (qs.required.length || missing.length) return { blocked: true, missing, required: qs.required, questions: [], text: '' };
   const eff = effectiveDesc(body.description, answers);
-  const b = { ...body, description: eff, answers };
+  const smx = matchScenario(eff.trim() || '');
+  const wordsOfDesc = countWords(eff);
+  // a real sentence (not just menu picks): keep the technician's own words so no specific detail is lost
+  const reported = wordsOfDesc >= 6 && !/^[a-z' -]+ (in|at|on|by) the [a-z' -]+$/i.test(eff.trim()) ? eff.trim().replace(/[.\s]+$/, '') : '';
+  const hazard = !!(smx && smx.hazard) || /safety|hazard|danger|injur|harm|sharp|jagged|\bcuts?\b|laceration|trip|shock|spark/i.test(`${eff} ${body.notes || ''}`);
+  const b = { ...body, description: eff, answers, reported };
+  if (mode === 'closure' && reported) b.notes = [`Issue noted: ${sentence(reported)}`, body.notes].filter(Boolean).join(' ');
   if (mode === 'worq') {
     let ai = null, source = 'template';
     if (apiKey) {
@@ -388,12 +394,12 @@ async function handle(body, apiKey, model) {
         ai = { request: lines[0], description: lines.slice(1).join(' ').replace(/^Description:\s*/i, '') }; source = 'ai';
       } catch (e) { console.error(e.message); }
     }
-    const e = composeWorq({ ...body, answers }, ai);
-    return { text: e.body, request: e.request, subject: e.subject, source, questions: qs.optional };
+    const e = composeWorq({ ...body, answers, reported }, ai);
+    return { text: e.body, request: e.request, subject: e.subject, source, questions: qs.optional, hazard };
   }
   let res;
   try { res = await generate(b, apiKey, model); } catch (e) { console.error(e.message); res = { text: fallback('closure', eff, b.vendor, b.ocrText, b.variant, b), source: 'template' }; }
-  return { text: res.text, source: res.source, questions: qs.optional };
+  return { text: res.text, source: res.source, questions: qs.optional, hazard };
 }
 
 module.exports = { handle, composeWorq, effectiveDesc, questionsFor, contextFor, worqRequest, extractTask, parseWorkOrder, templateClosure, generate, fallback, enforce, countWords, buildPrompt, MIN_WORDS };

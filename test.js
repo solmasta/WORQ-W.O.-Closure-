@@ -133,6 +133,18 @@ assert.ok(fallback('worq', 'light out in lobby', 'mts', '', 0, { answers: { coun
   assert.ok(/post|sign face|drivers/i.test(fixed.text), fixed.text);
   const bldg = await handle({ ...photoCase, description: 'building sign not lit', answers: { where: 'Exterior' } }, '', '');
   assert.ok(!bldg.blocked && /lighting|customers/i.test(bldg.text), 'a lit building sign should still describe lighting');
+  // the stop sign with a rip / sharp edge that can cut someone (the technician's own words must be kept and the hazard flagged)
+  const ripWords = 'stop sign has a clear rip in it which can harm somebody cut them';
+  const rip = await handle({ mode: 'worq', description: ripWords, ...base, answers: { where: 'Parking lot' } }, '', '');
+  assert.ok(!rip.blocked && rip.hazard === true, 'a torn stop sign is a safety hazard');
+  assert.ok(/replace torn stop sign/i.test(rip.request) && /sharp edge/i.test(rip.text) && /cut or injure/i.test(rip.text), rip.text);
+  assert.ok(rip.text.includes('Reported by the technician: Stop sign has a clear rip in it which can harm somebody cut them.'), 'the technician\'s own words must be kept');
+  assert.ok(!/lighting|customers|lift|ladder|2 man/i.test(rip.text), rip.text);
+  const ripDone = await handle({ mode: 'closure', description: ripWords, answers: { where: 'Parking lot' } }, '', '');
+  assert.ok(/Replaced the torn stop sign/.test(ripDone.text) && /kept people away/.test(ripDone.text) && /Issue noted: Stop sign has a clear rip/.test(ripDone.text), ripDone.text);
+  // every closing comment reads in the past tense all the way through (no "...and remove..." left in the present)
+  const { SCENARIOS: ALL } = require('./scenarios');
+  for (const sc of ALL.filter((x) => x.steps)) assert.ok(!/\b(inspected|cleaned|checked|replaced)[a-z,]* (and|or) (inspect|clean|check|replace|remove|install|adjust|test|confirm|restore|notify)\b (the|a|any|all)\b/.test(sc.steps), `tense slip in ${sc.id}: ${sc.steps}`);
   // items that could mean several different jobs must ask what is wrong, never guess
   for (const d of ['repair sign', 'repair parking lot', 'repair gutter', 'repair water heater', 'repair camera', 'fix door closer', 'repair wall pack']) {
     const r = await handle({ mode: 'worq', description: d, ...base, answers: { where: 'Exterior' } }, '', '');

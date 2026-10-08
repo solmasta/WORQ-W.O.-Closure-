@@ -6,6 +6,7 @@ const LOCATIONS = /\b(exterior|interior|outdoor|indoor|rooftop|kitchen|bathroom|
 const PREP_TAIL = /\b(in|at|by|near|on|inside|outside|behind|under|above)\s+(?:the\s+)?([\w'/ -]+)$/i;
 
 const ADJ = [
+  [/\brip|\btear|\btorn/i, 'torn'],
   [/un?clog|clog|plug|backed|stopped|blocked|block/i, 'clogged'],
   [/leak|drip|seep/i, 'leaking'],
   [/crack/i, 'cracked'], [/broke|broken|busted/i, 'broken'], [/loose|wobbl/i, 'loose'],
@@ -169,6 +170,7 @@ for (const sc of SCENARIOS) {
 
 // If an item alone could mean several different jobs ("sign", "gutter", "parking lot", "water heater"), the technician
 // must say what is wrong. Otherwise the app would be guessing, so these only match when a problem is named.
+const HAZARD_IDS = ['traffic-sign', 'traffic-sign-sharp', 'exposed-wiring', 'glass', 'sidewalk', 'floor', 'carpet-repair', 'egress', 'emergency-light', 'fire-alarm', 'sprinkler', 'breaker', 'outlet', 'pothole', 'curb-bollard', 'light-pole', 'canopy', 'ceiling-grid', 'extension-cord', 'fence', 'frozen-pipe', 'sewer', 'mold', 'smoke', 'window', 'door-frame', 'wallpack', 'area-light'];
 const PROB = /\bnot\b|n'?t\b|\bno\b|\bout\b|\boff\b|broke|damag|crack|stuck|jam|leak|drip|loose|nois|loud|dead|fail|dark|offline|\bdown\b|flicker|slow|block|clog|missing|bent|worn|frozen|spark|trip|dim|hum\b|buzz|stain|rust|fall|fell|hang|sag|lean|fad|torn|rip|burn|overflow|back(ed|ing)|weak|low|hot|cold|smell|odor|rattl|squeal|grind|bang|knock|tilt|crooked|twist|warp|split|peel|bubbl|wet|sweat|dirty|inoperab|chirp|batter|expire|won'?t|doesn'?t|unplug|hit|struck|vandal|graffiti|sink|sunk|hole/i;
 const SYM_FOR = {
   gutter: /clog|block|overflow|debris|leaf|leaves|full|backed|dirty|plug/i,
@@ -178,6 +180,7 @@ const SYM_FOR = {
 };
 const NEEDS_PROBLEM = ['camera', 'access-control', 'door-closer', 'auto-door', 'panic-bar', 'night-drop', 'boiler', 'mini-split', 'sensor-faucet', 'light-control', 'data-jack', 'elevator', 'fountain', 'area-light', 'skylight', 'flashing', 'blinds', 'door-frame', 'hinge', 'toilet-seat', 'weatherstrip', 'smoke', 'emergency-light', 'gfci', 'sump', 'wallpack', 'membrane', 'overhead-door'];
 for (const sc of SCENARIOS) {
+  if (HAZARD_IDS.includes(sc.id)) sc.hazard = true;
   if (sc.id === 'door') sc.no = /closer|panic|exit device|crash bar|automatic|auto door|operator|overhead|roll[- ]?up|dock door|garage door|frame|jamb|hinge|weather ?strip|sweep|threshold/i;
   if (sc.id === 'sign') sc.no = /stop|traffic|street|parking sign|ada|handicap|reserved|post|pole/i;
   if (SYM_FOR[sc.id]) sc.sym = SYM_FOR[sc.id];
@@ -187,7 +190,7 @@ for (const sc of SCENARIOS) {
 const clean = (s) => s.replace(/[.\s]+$/, '').replace(/\s+/g, ' ').trim();
 
 // text -> {scenario, subject} or null
-const FILLER = /^(please|pls|fix|repair|replace|the|a|an|my|is|are|has|have|not|working|work|need|needs|to|and|of|problem|issue|request|worq|mts|vendor|third|party|needed|clogged|clog|un?clog\w*|leak\w*|drip\w*|broke\w*|crack\w*|stuck|jam\w*|out|no|won'?t|burn\w*|dead|dim|flicker\w*|stain\w*|peel\w*|cool\w*|heat\w*|warm|hot|run\w*|noisy|loud|rekey|re-key|treat|remove|clear|clean|patch|install|trim|inspect|service|restripe|please|lit|dark)$/i;
+const FILLER = /^(please|pls|fix|repair|replace|the|a|an|my|is|are|has|have|not|working|work|need|needs|to|and|of|problem|issue|request|worq|mts|vendor|third|party|needed|clogged|clog|un?clog\w*|leak\w*|drip\w*|broke\w*|crack\w*|stuck|jam\w*|out|no|won'?t|burn\w*|dead|dim|flicker\w*|stain\w*|peel\w*|cool\w*|heat\w*|warm|hot|run\w*|noisy|loud|rekey|re-key|treat|remove|clear|clean|patch|install|trim|inspect|service|restripe|please|lit|dark|rip\w*|tear\w*|torn|sharp|jagged)$/i;
 const PREPS = /^(in|on|at|by|near|inside|outside|behind|under|above|of|the)$/i;
 const VERBISH = /^(paint|repaint|rekey|re-key|treat|clear|clean|trim|remove|patch|install|inspect|service|restripe|pressure wash)$/i;
 
@@ -203,7 +206,9 @@ function matchScenario(text) {
   const pm = PREP_TAIL.exec(t);
   if (pm && pm.index > 0) {
     const tail = clean(pm[2]);
-    if (sc.obj.test(tail) && !hasLocation(tail)) keepPreps = true;
+    const placeLike = tail.split(/\s+/).length <= 4 && !/\b(which|that|can|could|who|because|and|someone|somebody)\b/i.test(tail);   // a place, not the rest of a sentence
+    if (!placeLike) { /* not a place: leave the words alone */ }
+    else if (sc.obj.test(tail) && !hasLocation(tail)) keepPreps = true;
     else { suffix = `${pm[1].toLowerCase()} the ${tail.replace(/^the\s+/i, '')}`; body = t.slice(0, pm.index).trim(); }
   }
   // A loose place word ("kitchen", "lobby"), as long as the item is still there without it.
@@ -242,13 +247,14 @@ function matchScenario(text) {
   while (tokens.length && PREPS.test(tokens[tokens.length - 1])) tokens.pop();
   if (VERBISH.test(rawObj || objWord) && tokens.filter((w) => w !== '§').length) objWord = '';   // "rekey back door" -> "back door"
   if (!mb) tokens.push('§');
-  const body2 = tokens.map((w) => (w === '§' ? objWord : w)).filter(Boolean);
+  const body2 = (t.split(/\s+/).length > 8 ? ['§'] : tokens).map((w) => (w === '§' ? objWord : w)).filter(Boolean);  // a full sentence: keep just the item, the sentence itself is carried separately
   const parts = sc.fixedSubject ? [sc.fixedSubject] : [adj, place, ...body2].filter(Boolean);
   const seen = new Set();
   const core = parts.join(' ').split(' ').filter((w) => (w.length <= 3 ? true : seen.has(w.toLowerCase()) ? false : seen.add(w.toLowerCase()))).join(' ');
   const subject = core + (suffix ? ` ${suffix}` : '');
+  const hazardWords = /safety|hazard|danger|injur|harm|sharp|jagged|\bcut\b|cuts\b|laceration|trip|fall|shock|spark|fire|exposed|broken glass/i.test(t);
   const broken = /not work|not heat|not cool|no heat|no cool|won'?t work|inoperab|\bout\b|\bdead\b|burn|no power|stopped working/i.test(t);
-  return { scenario: sc, subject: clean(subject), core: clean(core), suffix, place, plural: /s$/i.test(objWord || rawObj), broken };
+  return { scenario: sc, hazard: !!sc.hazard || hazardWords, subject: clean(subject), core: clean(core), suffix, place, plural: /s$/i.test(objWord || rawObj), broken };
 }
 
 const hasLocation = (text) => LOCATIONS.test(text || '');
